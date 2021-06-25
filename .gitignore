@@ -1,0 +1,14 @@
+xzx# OSX
+.DS_Store
+
+# JetBrains
+.idea/*
+*.iws
+*.iml
+*.ipr
+
+# AWS credentials
+credentials.aws
+
+**/*lambda.zip
+*.zip
