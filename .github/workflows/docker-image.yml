@@ -1,0 +1,104 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  create-tag-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - id: set-matrix
+        run: echo "::set-output name=matrix::$(php .github/tag-builder/index.php)"
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+  build-main-images:
+    needs: create-tag-matrix
+    runs-on: ubuntu-latest
+    env:
+      ORGA: 'spryker'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          ### Rabbitmq 3.7.14
+          - image: '3.7.14/Dockerfile'
+            tags: [ "$ORGA/rabbitmq:3.7.14" ]
+            platform: [ "linux/amd64" ]
+
+          ### Rabbitmq 3.8
+          - image: '3.8/Dockerfile'
+            tags: [ "$ORGA/rabbitmq:3.8" ]
+            platform: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.9
+          - image: '3.9/Dockerfile'
+            tags: [ "$ORGA/rabbitmq:3.9" ]
+            platform: [ "linux/amd64", "linux/arm64" ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+        with:
+          version: latest
+      - name: Login to docker hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+      - name: Install platform emulator collection
+        run: docker run --privileged --rm tonistiigi/binfmt --install all
+      - name: Build images
+        run: docker buildx build --push . --file ${{ matrix.image }} --tag ${{ join(matrix.tags, ' --tag ') }} --platform ${{ join(matrix.platform, ',') }} --build-arg "ORAGINASATION=${{ env.ORGA }}"
+  build-child-images:
+    needs: build-main-images
+    runs-on: ubuntu-latest
+    env:
+      ORGA: 'zyuzka'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          ### Rabbitmq 3.7.14-amqp1
+          - image: '3.7.14/amqp1/Dockerfile'
+            tags: [ "$ORGA/rabbitmq:3.7.14-amqp1" ]
+            platform: [ "linux/amd64" ]
+
+          ### Rabbitmq 3.7.14-shovel
+          - image: '3.7.14/shovel/Dockerfile'
+            tags: [ "$ORGA/rabbitmq:3.7.14-shovel" ]
+            platform: [ "linux/amd64" ]
+
+          ### Rabbitmq 3.8-amqp1
+          - image: '3.8/amqp1/Dockerfile'
+            tags: [ "$ORGA/rabbitmq:3.8-amqp1" ]
+            platform: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.8-shovel
+          - image: '3.8/shovel/Dockerfile'
+            tags: [ "$ORGA/rabbitmq:3.8-shovel" ]
+            platform: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.9-amqp1
+          - image: '3.9/amqp1/Dockerfile'
+            tags: [ "$ORGA/rabbitmq:3.9-amqp1" ]
+            platform: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.9-shovel
+          - image: '3.9/shovel/Dockerfile'
+            tags: [ "$ORGA/rabbitmq:3.9-shovel" ]
+            platform: [ "linux/amd64", "linux/arm64" ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+        with:
+          version: latest
+      - name: Login to docker hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+      - name: Install platform emulator collection
+        run: docker run --privileged --rm tonistiigi/binfmt --install all
+      - name: Build images
+        run: docker buildx build --push . --file ${{ matrix.image }} --tag ${{ join(matrix.tags, ' --tag ') }} --platform ${{ join(matrix.platform, ',') }} --build-arg "ORAGINASATION=${{ env.ORGA }}"
