@@ -33,8 +33,6 @@ jobs:
           file: '3.7.14/Dockerfile'
           tags: "localhost:5000/spryker/rabbitmq:3.7.14"
           platforms: linux/amd64
-          secrets: |
-            GIT_AUTH_TOKEN=${{ secrets.GIT_AUTH_TOKEN }}
 
       - name: Rabbitmq 3.8 Build and push
         uses: docker/build-push-action@v2
@@ -43,8 +41,6 @@ jobs:
           file: '3.8/Dockerfile'
           tags: "localhost:5000/spryker/rabbitmq:3.8"
           platforms: linux/amd64,linux/arm64
-          secrets: |
-            GIT_AUTH_TOKEN=${{ secrets.GIT_AUTH_TOKEN }}
 
       - name: Rabbitmq 3.9 Build and push
         uses: docker/build-push-action@v2
@@ -53,8 +49,6 @@ jobs:
           file: '3.9/Dockerfile'
           tags: "localhost:5000/spryker/rabbitmq:3.9"
           platforms: linux/amd64,linux/arm64
-          secrets: |
-            GIT_AUTH_TOKEN=${{ secrets.GIT_AUTH_TOKEN }}
 
       - name: Stop Docker registry
         run: docker stop registry
@@ -127,7 +121,5 @@ jobs:
           file: ${{ matrix.image }}
           tags: ${{ join(matrix.tags) }}
           platforms: ${{ join(matrix.platform) }}
-          secrets: |
-            GIT_AUTH_TOKEN=${{ secrets.GIT_AUTH_TOKEN }}
           build-args: |
             ORAGINASATION=localhost:5000/spryker
