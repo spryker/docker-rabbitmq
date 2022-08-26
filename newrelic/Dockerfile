@@ -1,4 +1,4 @@
-FROM newrelic/infrastructure-bundle:2.7.4
+FROM newrelic/infrastructure-bundle:latest
 COPY ./entrypoint.sh entrypoint.sh
 RUN chmod +x entrypoint.sh
 ENTRYPOINT ["./entrypoint.sh"]
