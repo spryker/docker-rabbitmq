@@ -428,8 +428,24 @@ if [ "$haveSslConfig" ] && [ -f "$combinedSsl" ]; then
         # (no WARNING here, because this will only happen if we already displayed the "combined PEM certificate file" WARNING above, so it would be redundant)
 fi
 
-if [ "x${RABBITMQ_DEFAULT_USER}" != "x" ] && [ "x${RABBITMQ_DEFAULT_PASS}" != "x" ]; then
-  rabbitmqctl change_password ${RABBITMQ_DEFAULT_USER} ${RABBITMQ_DEFAULT_PASS}
+update_password_if_necessary() {
+  while ! rabbitmqctl wait -P 1; do
+    echo "Waiting for rmq to get ready..."
+    sleep 3
+  done
+
+  if rabbitmqadmin --user=${RABBITMQ_DEFAULT_USER} --password=${RABBITMQ_DEFAULT_PASS} show overview; then
+    echo "Password already is ok"
+  else
+    rabbitmqctl change_password ${RABBITMQ_DEFAULT_USER} ${RABBITMQ_DEFAULT_PASS}
+    echo "Password has been adjusted to match env vars"
+  fi
+}
+
+# only try to change the password if the server run
+if [ "$@" == "rabbitmq-server" ]; then
+  update_password_if_necessary &
 fi
+
 
 exec "$@"
