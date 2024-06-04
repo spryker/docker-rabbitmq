@@ -5,4 +5,4 @@ ENV RABBITMQ_SERVER_CODE_PATH ${RABBITMQ_SERVER_CODE_PATH}
 
 RUN rabbitmqctl hipe_compile ${RABBITMQ_SERVER_CODE_PATH}
 
-COPY docker-entrypoint.sh /usr/local/bin/
+COPY 3.7.14/docker-entrypoint.sh /usr/local/bin/
