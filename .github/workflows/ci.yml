@@ -28,6 +28,34 @@ jobs:
           - image: '3.9/Dockerfile'
             tags: [ "spryker/rabbitmq:3.9" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.10
+          - image: '3.10/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.10" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.10/amqp1/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.10-amqp1" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.10/shovel/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.10-shovel" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.13
+          - image: '3.13/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.13" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.13-amqp1
+          - image: '3.13/amqp1/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.13-amqp1" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.13-shovel
+          - image: '3.13/shovel/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.13-shovel" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
     steps:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
