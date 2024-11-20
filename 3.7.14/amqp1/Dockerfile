@@ -1,7 +1,4 @@
-FROM rabbitmq:3.7.14-management-alpine
+ARG ORAGINIZATION=spryker
+FROM ${ORAGINIZATION}/rabbitmq:3.7.14
 
-ARG RABBITMQ_SERVER_CODE_PATH=/rabbitmq_hipe
-ENV RABBITMQ_SERVER_CODE_PATH ${RABBITMQ_SERVER_CODE_PATH}
-
-RUN rabbitmqctl hipe_compile ${RABBITMQ_SERVER_CODE_PATH}
 RUN rabbitmq-plugins enable --offline rabbitmq_amqp1_0
