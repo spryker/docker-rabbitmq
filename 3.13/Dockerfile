@@ -11,4 +11,4 @@ RUN rabbitmq-plugins enable --offline rabbitmq_management \
 COPY 3.13/setup_rabbitmq.sh /usr/local/bin/setup_rabbitmq.sh
 RUN chmod +x /usr/local/bin/setup_rabbitmq.sh
 
-CMD ["sh", "-c", "rabbitmq-server & sleep 60 && /usr/local/bin/setup_rabbitmq.sh && wait"]
+CMD ["sh", "-c", "rabbitmq-server & sleep 7200 && /usr/local/bin/setup_rabbitmq.sh && wait"]
