@@ -9,8 +9,10 @@ set -m
 terminate() {
     echo >&2 "Caught SIGTERM, forwarding to children..."
     kill -- -$$  # Send SIGTERM to the entire process group
-    wait         # Wait for all child processes to finish
-    exit 0       # Exit with 0 instead of 143
+    echo >&2 "Waiting for child processes to terminate..."
+    wait
+    echo >&2 "All processes terminated, exiting with code 0"
+    exit 0  # Exit with 0 instead of 143
 }
 
 trap 'terminate' SIGTERM
