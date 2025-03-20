@@ -8,7 +8,7 @@ RUN rabbitmq-plugins enable --offline rabbitmq_management \
     && rabbitmq-plugins enable --offline rabbitmq_shovel  \
     && rabbitmq-plugins enable --offline rabbitmq_shovel_management
 
-COPY 3.13/setup_rabbitmq.sh /usr/local/bin/setup_rabbitmq.sh
-RUN chmod +x /usr/local/bin/setup_rabbitmq.sh
+COPY setup-rabbitmq.sh /usr/local/bin/setup-rabbitmq.sh
+RUN chmod +x /usr/local/bin/setup-rabbitmq.sh
 
-CMD ["sh", "-c", "rabbitmq-server & sleep 60 && /usr/local/bin/setup_rabbitmq.sh && wait"]
+CMD ["setup-rabbitmq.sh"]
