@@ -56,7 +56,7 @@ enable_feature_flags() {
     echo >&2 "Disabled feature flags: $disabled_flags"
 
     for flag in $available_flags; do
-        if echo >&2 "$disabled_flags" | grep -qw "$flag"; then
+        if echo "$disabled_flags" | grep -qw "$flag"; then
             echo >&2 "Skipping disabled feature flag: $flag"
         else
             echo >&2 "Enabling feature flag: $flag"
@@ -71,7 +71,7 @@ enable_feature_flags() {
 
 update_policies() {
   # Get a list of all vhosts (excluding the default root vhost '/')
-  vhosts=$(rabbitmqctl list_vhosts --formatter=json | jq -r '.[].name' | grep -v '^/$')
+  vhosts=$(rabbitmqctl list_vhosts --formatter=json | jq -r '.[].name' | grep -v '^/$' || true)
 
   for vhost in $vhosts; do
     echo >&2 "Processing vhost: $vhost"
@@ -80,13 +80,13 @@ update_policies() {
     policies=$(rabbitmqctl list_policies -p "$vhost" --formatter=json)
 
     # Loop through each policy
-    echo >&2 "$policies" | jq -c '.[]' | while read -r policy; do
+    echo "$policies" | jq -c '.[]' | while read -r policy; do
         # Extract policy details
-        name=$(echo >&2 "$policy" | jq -r '.name')
-        pattern=$(echo >&2 "$policy" | jq -r '.pattern')
-        apply_to=$(echo >&2 "$policy" | jq -r '.apply_to')
-        definition=$(echo >&2 "$policy" | jq -r '.definition')
-        priority=$(echo >&2 "$policy" | jq -r '.priority')
+        name=$(echo "$policy" | jq -r '.name')
+        pattern=$(echo "$policy" | jq -r '.pattern')
+        apply_to=$(echo "$policy" | jq -r '.apply_to')
+        definition=$(echo "$policy" | jq -r '.definition')
+        priority=$(echo "$policy" | jq -r '.priority')
 
         echo >&2 "Processing policy: $name on vhost: $vhost"
 
@@ -97,11 +97,11 @@ update_policies() {
         fi
 
         # Check if the policy contains ha-mode
-        if echo >&2 "$definition" | grep -q '"ha-mode"'; then
+        if echo "$definition" | grep -q '"ha-mode"'; then
             echo >&2 "Policy '$name' contains 'ha-mode'. Updating to remove 'ha-mode'..."
 
             # Remove 'ha-mode' and 'ha-sync-mode'
-            new_definition=$(echo >&2 "$definition" | jq 'del(.["ha-mode", "ha-sync-mode"])')
+            new_definition=$(echo "$definition" | jq 'del(.["ha-mode", "ha-sync-mode"])')
 
             # Update the policy
             rabbitmqctl set_policy "$name" "$pattern" "$new_definition" --priority "$priority" --apply-to "$apply_to" -p "$vhost"
@@ -200,7 +200,7 @@ EOF
 )
 
             # Validate JSON
-            echo >&2 "$shovel_config" | jq . > /dev/null 2>&1 || { echo >&2 "Invalid JSON for shovel config"; continue; }
+            echo "$shovel_config" | jq . > /dev/null 2>&1 || { echo "Invalid JSON for shovel config"; continue; }
 
             echo >&2 "Debug: Creating shovel with the following parameters:"
             echo >&2 "Vhost: $vhost"
