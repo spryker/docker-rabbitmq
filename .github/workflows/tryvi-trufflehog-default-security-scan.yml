@@ -1,0 +1,118 @@
+name: Build and Scan Docker Images with Trivy && Trufflehog
+
+on:
+  push:
+    branches-ignore:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-scan-images-for-vulnerabilities:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          ### Rabbitmq 3.7
+          - context: "3.7.14"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.7.14"
+            platforms: "linux/amd64"
+          - context: "3.7.14/amqp1"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.7.14-amqp1"
+            platforms: "linux/amd64"
+          - context: "3.7.14/shovel"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.7.14-shovel"
+            platforms: "linux/amd64"
+          ### Rabbitmq 3.8
+          - context: "3.8"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.8"
+            platforms: "linux/amd64"
+          - context: "3.8/amqp1"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.8-amqp1"
+            platforms: "linux/amd64"
+          - context: "3.8/shovel"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.8-shovel"
+            platforms: "linux/amd64"
+          ### Rabbitmq 3.9
+          - context: "3.9"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.9"
+            platforms: "linux/amd64"
+          - context: "3.9/amqp1"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.9-amqp1"
+            platforms: "linux/amd64"
+          - context: "3.9/shovel"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.9-shovel"
+            platforms: "linux/amd64"
+          ### Rabbitmq 3.10
+          - context: "3.10"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.10"
+            platforms: "linux/amd64"
+          - context: "3.10/amqp1"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.10-amqp1"
+            platforms: "linux/amd64"
+          - context: "3.10/shovel"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.10-shovel"
+            platforms: "linux/amd64"
+          ### Rabbitmq 3.11
+          - context: "3.11"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.11"
+            platforms: "linux/amd64"
+          - context: "3.11/amqp1"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.11-amqp1"
+            platforms: "linux/amd64"
+          - context: "3.11/shovel"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.11-shovel"
+            platforms: "linux/amd64"
+          ### Rabbitmq 3.12
+          - context: "3.12"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.12"
+            platforms: "linux/amd64"
+          - context: "3.12/amqp1"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.12-amqp1"
+            platforms: "linux/amd64"
+          - context: "3.12/shovel"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.12-shovel"
+            platforms: "linux/amd64"
+          ### Rabbitmq 3.13
+          - context: "3.13"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.13"
+            platforms: "linux/amd64"
+          - context: "3.13/amqp1"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.13-amqp1"
+            platforms: "linux/amd64"
+          - context: "3.13/shovel"
+            dockerfile: "Dockerfile"
+            tag: "spryker/rabbitmq:3.13-shovel"
+            platforms: "linux/amd64"
+
+
+    name: Build and Scan - ${{ matrix.tag }}
+    uses: DenysSirchenko/gha_workflows/.github/workflows/ecr-scheduled-security-scan.yml@main
+    with:
+      context: ${{ matrix.context }}
+      dockerfile: ${{ matrix.dockerfile }}
+      tag: ${{ matrix.tag }}
+      platforms: ${{ matrix.platforms }}
+    secrets: inherit
