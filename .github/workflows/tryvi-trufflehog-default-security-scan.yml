@@ -107,7 +107,6 @@ jobs:
             image: "spryker/rabbitmq:3.13-shovel"
             platforms: "linux/amd64"
 
-
     name: Build and Scan - ${{ matrix.image }}
     uses: DenysSirchenko/gha_workflows/.github/workflows/ecr-scheduled-security-scan.yml@main
     with:
