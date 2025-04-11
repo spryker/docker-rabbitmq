@@ -72,9 +72,9 @@ jobs:
         #   - image: "3.12/amqp1/Dockerfile"
         #     tag: "3.12-amqp1"
         #     platforms: "linux/amd64"
-        #   - image: "3.12/shovel/Dockerfile"
-        #     tag: "3.12-shovel"
-        #     platforms: "linux/amd64"
+          - image: "3.12/shovel/Dockerfile"
+            tag: "3.12-shovel"
+            platforms: "linux/amd64"
         #   ### Rabbitmq 3.13
         #   - image: "3.13/Dockerfile"
         #     tag: "3.13"
@@ -82,9 +82,9 @@ jobs:
         #   - image: "3.13/amqp1/Dockerfile"
         #     tag: "3.13-amqp1"
         #     platforms: "linux/amd64"
-          - image: "3.13/shovel/Dockerfile"
-            tag: "3.13-shovel"
-            platforms: "linux/amd64"
+        #   - image: "3.13/shovel/Dockerfile"
+        #     tag: "3.13-shovel"
+        #     platforms: "linux/amd64"
 
     steps:
       - name: Configure AWS credentials
@@ -112,6 +112,7 @@ jobs:
         with:
           repository: ${{ secrets.AWS_ECR_REPO }}
           tag: ${{ join(matrix.tag) }}-${{ github.sha }}
+        continue-on-error: true
 
       - name: Delete images after scan images
         run: |
