@@ -48,19 +48,19 @@ jobs:
           echo -e "\n📋 === Diff Output ==="
           cat diff-output.txt
 
-          - name: Fetch Job ID
-          id: fetch_job_id
-          if: ${{ env.DIFF_OUTPUT != '' }}
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          run: |
-            JOBS_JSON=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs")
-            echo "$JOBS_JSON" > jobs-response.json
-            cat jobs-response.json
-            JOB_ID=$(echo "$JOBS_JSON" | jq -r '.jobs[0].id')
-            echo "Extracted Job ID: $JOB_ID"
-            echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
+      - name: Fetch Job ID
+        id: fetch_job_id
+        if: ${{ env.DIFF_OUTPUT != '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          JOBS_JSON=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs")
+          echo "$JOBS_JSON" > jobs-response.json
+          cat jobs-response.json
+          JOB_ID=$(echo "$JOBS_JSON" | jq -r '.jobs[0].id')
+          echo "Extracted Job ID: $JOB_ID"
+          echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
   
       - name: Send Slack Notification
         if: ${{ env.DIFF_OUTPUT != '' }}
