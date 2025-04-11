@@ -159,7 +159,7 @@ jobs:
                 }
               ]
             }
-          webhook: ${{ secrets.WEBHOOK_CE_SECURITY_SCAN_JENKINS }}
+          webhook: ${{ secrets.WEBHOOK_CE_SECURITY_SCAN_RABBITMQ }}
           webhook-type: incoming-webhook
 
       - name: Fail the execution
