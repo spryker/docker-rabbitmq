@@ -1,56 +1,202 @@
-name: CI/CD - Local Compare Only
+name: CI
 
-on: [push]
+on: push
 
 jobs:
-  compare-images:
+  build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          ### Rabbitmq 3.7.14
+          - image: '3.7.14/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.7.14" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.7.14/amqp1/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.7.14-amqp1" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.7.14/shovel/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.7.14-shovel" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.8
+          - image: '3.8/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.8" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.8/amqp1/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.8-amqp1" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.8/shovel/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.8-shovel" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.9
+          - image: '3.9/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.9" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.9/amqp1/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.9-amqp1" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.9/shovel/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.9-shovel" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.10
+          - image: '3.10/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.10" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.10/amqp1/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.10-amqp1" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.10/shovel/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.10-shovel" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.11
+          - image: '3.11/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.11" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.11/amqp1/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.11-amqp1" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.11/shovel/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.11-shovel" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.12
+          - image: '3.12/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.12" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.12/amqp1/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.12-amqp1" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.12/shovel/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.12-shovel" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          ### Rabbitmq 3.13
+          - image: '3.13/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.13" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.13/amqp1/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.13-amqp1" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
+          - image: '3.13/shovel/Dockerfile'
+            tags: [ "spryker/rabbitmq:3.13-shovel" ]
+            platforms: [ "linux/amd64", "linux/arm64" ]
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get the previous commit hash
+        id: previous_commit
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/master" ]; then
+            PREV_COMMIT_HASH=$(git rev-parse HEAD^1)
+          else
+            PREV_COMMIT_HASH=$(git rev-parse origin/master)
+            IMAGE_TAG="${{ matrix.tags[0] }}"
+            echo "Pulling image $IMAGE_TAG"
+          
+            if ! docker pull "$IMAGE_TAG"; then
+              echo "Image $IMAGE_TAG does not exist. Setting PREV_COMMIT_HASH to empty string."
+              PREV_COMMIT_HASH=""
+            else
+              docker pull "$IMAGE_TAG"
+  
+              NEW_TAG="${IMAGE_TAG}-${PREV_COMMIT_HASH}"
+              echo "Re-tagging image to $NEW_TAG"
+              docker tag "$IMAGE_TAG" "$NEW_TAG"
+  
+              echo "Removing the pulled image $IMAGE_TAG"
+              docker rmi "$IMAGE_TAG" || true
+            fi
+          fi
+          echo "PREV_COMMIT_HASH=$PREV_COMMIT_HASH" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build rabbitmq 3.12 (Previous Image)
-        run: |
-          echo "🔨 Building rabbitmq 3.12 as previous image"
-          docker build -f 3.12/Dockerfile -t rabbitmq:3.12 .
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build rabbitmq 3.13 (Current Image)
+      - name: Re-tag images with previous commit hash
+        if: ${{ github.ref == 'refs/heads/master' }}
         run: |
-          echo "🔨 Building rabbitmq 3.13 as current image"
-          docker build -f 3.13/Dockerfile -t rabbitmq:3.13 .
+          PREV_HASH=${{ env.PREV_COMMIT_HASH }}
+          if [ -z "$PREV_HASH" ]; then
+            echo "PREV_HASH is empty. Skipping retagging."
+            exit 0
+          fi
+          IMAGE_TAGS="${{ join(matrix.tags, ' ') }}"
+          for IMAGE_TAG in $IMAGE_TAGS; do
+            docker pull "$IMAGE_TAG"
+            NEW_TAG="${IMAGE_TAG}-${PREV_HASH}"
+            docker tag "$IMAGE_TAG" "$NEW_TAG"
+            echo "Re-tagged image: $NEW_TAG"
+            docker push $NEW_TAG
+          done
 
-      - name: Generate current image report
+      - name: Build and push
+        id: docker_build
+        uses: docker/build-push-action@v6
+        with:
+          push: ${{ github.ref == 'refs/heads/master' }}
+          load: ${{ github.ref != 'refs/heads/master' }}
+          file: ${{ matrix.image }}
+          tags: ${{ join(matrix.tags) }}
+          platforms: ${{ github.ref == 'refs/heads/master' && join(matrix.platforms) || 'linux/amd64' }}
+
+      - name: Pull image for master branch
+        if: github.ref == 'refs/heads/master'
         run: |
-          echo "📦 Generating current image report (3.13)"
-          bash .github/compare-images.sh rabbitmq:3.13 > current-image-report.txt || true
+          echo "Pulling image for master branch"
+          docker pull ${{ matrix.tags[0] }}
+
+      - name: Current image report
+        id: manifest
+        run: |
+          CURRENT_TAG=${{ matrix.tags[0] }}
+          bash .github/compare-images.sh $CURRENT_TAG > current-image-report.txt || true
           cat current-image-report.txt
 
-      - name: Generate previous image report
+      - name: Previous image report
         run: |
-          echo "📦 Generating previous image report (3.12)"
-          bash .github/compare-images.sh rabbitmq:3.12 > previous-image-report.txt || true
+          PREVIOUS_TAG="${{ matrix.tags[0] }}-${{ env.PREV_COMMIT_HASH }}"
+          bash .github/compare-images.sh $PREVIOUS_TAG > previous-image-report.txt || true
           cat previous-image-report.txt
 
       - name: Run the diff and format output
-        run: |
-          echo "📄 === Previous Image Report (3.12) ==="
-          cat previous-image-report.txt
-          
-          echo -e "\n📄 === Current Image Report (3.13) ==="
-          cat current-image-report.txt
-          
-          echo -e "\n🔍 Running diff..."
-          bash .github/format-output.sh
-          
-          echo -e "\n📋 === Diff Output ==="
-          cat diff-output.txt
+        id: diff
+        run: bash .github/format-output.sh
 
       - name: Fetch Job ID
         id: fetch_job_id
-        if: ${{ env.DIFF_OUTPUT != '' }}
+        if: ${{ github.ref == 'refs/heads/master' && env.DIFF_OUTPUT != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -60,20 +206,20 @@ jobs:
           cat jobs-response.json
           JOB_ID=$(echo "$JOBS_JSON" | jq -r '.jobs[0].id')
           echo "Extracted Job ID: $JOB_ID"
-          echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
-  
+          echo "::set-output name=job_id::$JOB_ID"
+
       - name: Send Slack Notification
-        if: ${{ env.DIFF_OUTPUT != '' }}
+        if: ${{ github.ref == 'refs/heads/master' && env.DIFF_OUTPUT != '' }}
         uses: slackapi/slack-github-action@v1.24.0
         with:
           payload: |
             {
               "attachments": [
                 {
-                  "color": "good",
+                  "color": "good", 
                   "fields": [
                     {
-                      "title": "New version of 3.13 has been published",
+                      "title": "New version of ${{ matrix.tags[0] }} has been published",
                       "value": "You can check the:\n- *Manifest*: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${{ steps.fetch_job_id.outputs.job_id }}#step:9:1|View Manifest>\n- *Diff*: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${{ steps.fetch_job_id.outputs.job_id }}#step:11:7|View Diff>\n\nThis version was built out of <https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>.",
                       "short": false
                     }
