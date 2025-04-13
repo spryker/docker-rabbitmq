@@ -6,7 +6,7 @@ on:
   push:
     branches:
     #   - master
-      - SC-22221
+      - SC-22223
 
 jobs:
   vulnerability-detection:
@@ -79,15 +79,15 @@ jobs:
         #     tag: "3.11-shovel"
         #     platforms: "linux/amd64"
         #     image_type: "RabbitMQ"
-          ### Rabbitmq 3.12
-          - image: "3.12/Dockerfile"
-            tag: "3.12"
-            platforms: "linux/amd64"
-            image_type: "RabbitMQ"
-          - image: "3.12/amqp1/Dockerfile"
-            tag: "3.12-amqp1"
-            platforms: "linux/amd64"
-            image_type: "RabbitMQ"
+        #   ### Rabbitmq 3.12
+        #   - image: "3.12/Dockerfile"
+        #     tag: "3.12"
+        #     platforms: "linux/amd64"
+        #     image_type: "RabbitMQ"
+        #   - image: "3.12/amqp1/Dockerfile"
+        #     tag: "3.12-amqp1"
+        #     platforms: "linux/amd64"
+        #     image_type: "RabbitMQ"
           - image: "3.12/shovel/Dockerfile"
             tag: "3.12-shovel"
             platforms: "linux/amd64"
