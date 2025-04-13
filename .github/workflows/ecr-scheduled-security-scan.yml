@@ -97,14 +97,14 @@ jobs:
         #     tag: "3.13"
         #     platforms: "linux/amd64"
         #     image_type: "RabbitMQ"
-        #   - image: "3.13/amqp1/Dockerfile"
-        #     tag: "3.13-amqp1"
-        #     platforms: "linux/amd64"
-        #     image_type: "RabbitMQ"
-          - image: "3.13/shovel/Dockerfile"
-            tag: "3.13-shovel"
+          - image: "3.13/amqp1/Dockerfile"
+            tag: "3.13-amqp1"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
+        #   - image: "3.13/shovel/Dockerfile"
+        #     tag: "3.13-shovel"
+        #     platforms: "linux/amd64"
+        #     image_type: "RabbitMQ"
 
     uses: DenysSirchenko/gha_workflows/.github/workflows/ecr-scheduled-security-scan.yml@main
     with:
