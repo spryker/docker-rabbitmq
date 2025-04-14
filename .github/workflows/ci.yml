@@ -17,11 +17,9 @@ jobs:
           - image: '3.7.14/Dockerfile'
             tags: [ "spryker/rabbitmq:3.7.14" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.7.14/amqp1/Dockerfile'
             tags: [ "spryker/rabbitmq:3.7.14-amqp1" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.7.14/shovel/Dockerfile'
             tags: [ "spryker/rabbitmq:3.7.14-shovel" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
@@ -30,11 +28,9 @@ jobs:
           - image: '3.8/Dockerfile'
             tags: [ "spryker/rabbitmq:3.8" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.8/amqp1/Dockerfile'
             tags: [ "spryker/rabbitmq:3.8-amqp1" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.8/shovel/Dockerfile'
             tags: [ "spryker/rabbitmq:3.8-shovel" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
@@ -43,11 +39,9 @@ jobs:
           - image: '3.9/Dockerfile'
             tags: [ "spryker/rabbitmq:3.9" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.9/amqp1/Dockerfile'
             tags: [ "spryker/rabbitmq:3.9-amqp1" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.9/shovel/Dockerfile'
             tags: [ "spryker/rabbitmq:3.9-shovel" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
@@ -56,11 +50,9 @@ jobs:
           - image: '3.10/Dockerfile'
             tags: [ "spryker/rabbitmq:3.10" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.10/amqp1/Dockerfile'
             tags: [ "spryker/rabbitmq:3.10-amqp1" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.10/shovel/Dockerfile'
             tags: [ "spryker/rabbitmq:3.10-shovel" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
@@ -69,11 +61,9 @@ jobs:
           - image: '3.11/Dockerfile'
             tags: [ "spryker/rabbitmq:3.11" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.11/amqp1/Dockerfile'
             tags: [ "spryker/rabbitmq:3.11-amqp1" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.11/shovel/Dockerfile'
             tags: [ "spryker/rabbitmq:3.11-shovel" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
@@ -82,11 +72,9 @@ jobs:
           - image: '3.12/Dockerfile'
             tags: [ "spryker/rabbitmq:3.12" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.12/amqp1/Dockerfile'
             tags: [ "spryker/rabbitmq:3.12-amqp1" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.12/shovel/Dockerfile'
             tags: [ "spryker/rabbitmq:3.12-shovel" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
@@ -95,11 +83,9 @@ jobs:
           - image: '3.13/Dockerfile'
             tags: [ "spryker/rabbitmq:3.13" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.13/amqp1/Dockerfile'
             tags: [ "spryker/rabbitmq:3.13-amqp1" ]
             platforms: [ "linux/amd64", "linux/arm64" ]
-
           - image: '3.13/shovel/Dockerfile'
             tags: [ "spryker/rabbitmq:3.13-shovel" ]
             platforms: [ "linux/amd64", "linux/arm64" ]

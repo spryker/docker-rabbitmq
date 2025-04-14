@@ -28,6 +28,7 @@ jobs:
             dockerfile: "Dockerfile"
             image: "spryker/rabbitmq:3.7.14-shovel"
             platforms: "linux/amd64"
+
           ### Rabbitmq 3.8
           - context: "3.8"
             dockerfile: "Dockerfile"
@@ -41,6 +42,7 @@ jobs:
             dockerfile: "Dockerfile"
             image: "spryker/rabbitmq:3.8-shovel"
             platforms: "linux/amd64"
+
           ### Rabbitmq 3.9
           - context: "3.9"
             dockerfile: "Dockerfile"
@@ -54,6 +56,7 @@ jobs:
             dockerfile: "Dockerfile"
             image: "spryker/rabbitmq:3.9-shovel"
             platforms: "linux/amd64"
+
           ### Rabbitmq 3.10
           - context: "3.10"
             dockerfile: "Dockerfile"
@@ -67,6 +70,7 @@ jobs:
             dockerfile: "Dockerfile"
             image: "spryker/rabbitmq:3.10-shovel"
             platforms: "linux/amd64"
+
           ### Rabbitmq 3.11
           - context: "3.11"
             dockerfile: "Dockerfile"
@@ -80,6 +84,7 @@ jobs:
             dockerfile: "Dockerfile"
             image: "spryker/rabbitmq:3.11-shovel"
             platforms: "linux/amd64"
+
           ### Rabbitmq 3.12
           - context: "3.12"
             dockerfile: "Dockerfile"
@@ -93,6 +98,7 @@ jobs:
             dockerfile: "Dockerfile"
             image: "spryker/rabbitmq:3.12-shovel"
             platforms: "linux/amd64"
+
           ### Rabbitmq 3.13
           - context: "3.13"
             dockerfile: "Dockerfile"

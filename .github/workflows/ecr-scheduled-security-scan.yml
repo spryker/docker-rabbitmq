@@ -27,6 +27,7 @@ jobs:
             tag: "3.7.14-shovel"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
+
           ### Rabbitmq 3.8
           - image: "3.8/Dockerfile"
             tag: "3.8"
@@ -40,6 +41,7 @@ jobs:
             tag: "3.8-shovel"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
+
           ### Rabbitmq 3.9
           - image: "3.9/Dockerfile"
             tag: "3.9"
@@ -53,6 +55,7 @@ jobs:
             tag: "3.9-shovel"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
+
           ### Rabbitmq 3.10
           - image: "3.10/Dockerfile"
             tag: "3.10"
@@ -66,6 +69,7 @@ jobs:
             tag: "3.10-shovel"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
+
           ### Rabbitmq 3.11
           - image: "3.11/Dockerfile"
             tag: "3.11"
@@ -79,6 +83,7 @@ jobs:
             tag: "3.11-shovel"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
+
           ### Rabbitmq 3.12
           - image: "3.12/Dockerfile"
             tag: "3.12"
@@ -92,6 +97,7 @@ jobs:
             tag: "3.12-shovel"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
+
           ### Rabbitmq 3.13
           - image: "3.13/Dockerfile"
             tag: "3.13"
