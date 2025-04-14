@@ -1,12 +1,13 @@
 name: ECR RabbitMQ Vulnerability Scan
 
 on:
-  ### Disabled until results of discussion with Secirity team
-#   schedule:
-#     - cron: '10 0 * * *'
-#   push:
-#     branches:
-#       - master
+  workflow_dispatch  # 👈 keeps workflow valid but disables automatic triggers. See below
+  ### Disabled automatic triggers until results of discussion with Secirity team
+  # schedule:
+  #   - cron: '10 0 * * *'
+  # push:
+  #   branches:
+  #     - master
 
 jobs:
   vulnerability-detection:
