@@ -15,79 +15,79 @@ jobs:
         include:
           # RabbitMQ 3.7.14 variants
           - image: "3.7.14/Dockerfile"
-            tag: "test/rabbitmq:3.7.14"
+            tag: "spryker/rabbitmq:3.7.14"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.7.14/amqp1/Dockerfile"
-            tag: "test/rabbitmq:3.7.14-amqp1"
+            tag: "spryker/rabbitmq:3.7.14-amqp1"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.7.14/shovel/Dockerfile"
-            tag: "test/rabbitmq:3.7.14-shovel"
+            tag: "spryker/rabbitmq:3.7.14-shovel"
             platforms: "linux/amd64,linux/arm64"
 
           # RabbitMQ 3.8 variants
           - image: "3.8/Dockerfile"
-            tag: "test/rabbitmq:3.8"
+            tag: "spryker/rabbitmq:3.8"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.8/amqp1/Dockerfile"
-            tag: "test/rabbitmq:3.8-amqp1"
+            tag: "spryker/rabbitmq:3.8-amqp1"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.8/shovel/Dockerfile"
-            tag: "test/rabbitmq:3.8-shovel"
+            tag: "spryker/rabbitmq:3.8-shovel"
             platforms: "linux/amd64,linux/arm64"
 
           # RabbitMQ 3.9 variants
           - image: "3.9/Dockerfile"
-            tag: "test/rabbitmq:3.9"
+            tag: "spryker/rabbitmq:3.9"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.9/amqp1/Dockerfile"
-            tag: "test/rabbitmq:3.9-amqp1"
+            tag: "spryker/rabbitmq:3.9-amqp1"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.9/shovel/Dockerfile"
-            tag: "test/rabbitmq:3.9-shovel"
+            tag: "spryker/rabbitmq:3.9-shovel"
             platforms: "linux/amd64,linux/arm64"
 
           # RabbitMQ 3.10 variants
           - image: "3.10/Dockerfile"
-            tag: "test/rabbitmq:3.10"
+            tag: "spryker/rabbitmq:3.10"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.10/amqp1/Dockerfile"
-            tag: "test/rabbitmq:3.10-amqp1"
+            tag: "spryker/rabbitmq:3.10-amqp1"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.10/shovel/Dockerfile"
-            tag: "test/rabbitmq:3.10-shovel"
+            tag: "spryker/rabbitmq:3.10-shovel"
             platforms: "linux/amd64,linux/arm64"
 
           # RabbitMQ 3.11 variants
           - image: "3.11/Dockerfile"
-            tag: "test/rabbitmq:3.11"
+            tag: "spryker/rabbitmq:3.11"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.11/amqp1/Dockerfile"
-            tag: "test/rabbitmq:3.11-amqp1"
+            tag: "spryker/rabbitmq:3.11-amqp1"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.11/shovel/Dockerfile"
-            tag: "test/rabbitmq:3.11-shovel"
+            tag: "spryker/rabbitmq:3.11-shovel"
             platforms: "linux/amd64,linux/arm64"
 
           # RabbitMQ 3.12 variants
           - image: "3.12/Dockerfile"
-            tag: "test/rabbitmq:3.12"
+            tag: "spryker/rabbitmq:3.12"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.12/amqp1/Dockerfile"
-            tag: "test/rabbitmq:3.12-amqp1"
+            tag: "spryker/rabbitmq:3.12-amqp1"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.12/shovel/Dockerfile"
-            tag: "test/rabbitmq:3.12-shovel"
+            tag: "spryker/rabbitmq:3.12-shovel"
             platforms: "linux/amd64,linux/arm64"
 
           # RabbitMQ 3.13 variants
           - image: "3.13/Dockerfile"
-            tag: "test/rabbitmq:3.13"
+            tag: "spryker/rabbitmq:3.13"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.13/amqp1/Dockerfile"
-            tag: "test/rabbitmq:3.13-amqp1"
+            tag: "spryker/rabbitmq:3.13-amqp1"
             platforms: "linux/amd64,linux/arm64"
           - image: "3.13/shovel/Dockerfile"
-            tag: "test/rabbitmq:3.13-shovel"
+            tag: "spryker/rabbitmq:3.13-shovel"
             platforms: "linux/amd64,linux/arm64"
 
     name: Build and Scan - ${{ matrix.tag }}
@@ -99,4 +99,4 @@ jobs:
     secrets:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      SLACK_WEBHOOK_URL: ${{ secrets.WEBHOOK_CE_RELEASE_IMAGES_JENKINS }}
+      SLACK_WEBHOOK_URL: ${{ secrets.WEBHOOK_CE_RELEASE_IMAGES_RABBITMQ }}
