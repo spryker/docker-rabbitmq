@@ -1,11 +1,12 @@
 name: ECR RabbitMQ Vulnerability Scan
 
 on:
-  schedule:
-    - cron: '10 0 * * *'
-  push:
-    branches:
-      - master
+  ### Disabled until results of discussion with Secirity team
+#   schedule:
+#     - cron: '10 0 * * *'
+#   push:
+#     branches:
+#       - master
 
 jobs:
   vulnerability-detection:
