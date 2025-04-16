@@ -1,103 +1,102 @@
-name: CI
+name: CI/CD RabbitMQ Build and Scan
 
-on: push
+on:
+  push:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-and-scan-images-for-vulnerabilities:
     strategy:
       fail-fast: false
       matrix:
         include:
-          ### Rabbitmq 3.7.14
-          - image: '3.7.14/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.7.14", "spryker/rabbitmq:latest" ]
-            platforms: [ "linux/amd64" ]
+          # RabbitMQ 3.7.14 variants
+          - image: "3.7.14/Dockerfile"
+            tag: "spryker/rabbitmq:3.7.14"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.7.14/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:3.7.14-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.7.14/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:3.7.14-shovel"
+            platforms: "linux/amd64,linux/arm64"
 
-          ### Rabbitmq 3.8-amqp1
-          - image: '3.8/amqp1/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.8-amqp1" ]
-            platforms: [ "linux/amd64", "linux/arm64", "linux/arm64/v8" ]
+          # RabbitMQ 3.8 variants
+          - image: "3.8/Dockerfile"
+            tag: "spryker/rabbitmq:3.8"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.8/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:3.8-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.8/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:3.8-shovel"
+            platforms: "linux/amd64,linux/arm64"
 
-          ### Rabbitmq 3.8
-          - image: '3.8/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.8" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
+          # RabbitMQ 3.9 variants
+          - image: "3.9/Dockerfile"
+            tag: "spryker/rabbitmq:3.9"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.9/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:3.9-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.9/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:3.9-shovel"
+            platforms: "linux/amd64,linux/arm64"
 
-          ### Rabbitmq 3.9
-          - image: '3.9/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.9" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
+          # RabbitMQ 3.10 variants
+          - image: "3.10/Dockerfile"
+            tag: "spryker/rabbitmq:3.10"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.10/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:3.10-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.10/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:3.10-shovel"
+            platforms: "linux/amd64,linux/arm64"
 
-          ### Rabbitmq 3.10
-          - image: '3.10/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.10" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
+          # RabbitMQ 3.11 variants
+          - image: "3.11/Dockerfile"
+            tag: "spryker/rabbitmq:3.11"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.11/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:3.11-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.11/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:3.11-shovel"
+            platforms: "linux/amd64,linux/arm64"
 
-          - image: '3.10/amqp1/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.10-amqp1" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
+          # RabbitMQ 3.12 variants
+          - image: "3.12/Dockerfile"
+            tag: "spryker/rabbitmq:3.12"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.12/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:3.12-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.12/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:3.12-shovel"
+            platforms: "linux/amd64,linux/arm64"
 
-          - image: '3.10/shovel/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.10-shovel" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
+          # RabbitMQ 3.13 variants
+          - image: "3.13/Dockerfile"
+            tag: "spryker/rabbitmq:3.13"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.13/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:3.13-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.13/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:3.13-shovel"
+            platforms: "linux/amd64,linux/arm64"
 
-          ### Rabbitmq 3.11
-          - image: '3.11/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.11" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
-
-          - image: '3.11/amqp1/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.11-amqp1" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
-
-          - image: '3.11/shovel/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.11-shovel" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
-
-          ### Rabbitmq 3.12
-          - image: '3.12/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.12" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
-
-          - image: '3.12/amqp1/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.12-amqp1" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
-
-          - image: '3.12/shovel/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.12-shovel" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
-
-          ### Rabbitmq 3.13
-          - image: '3.13/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.13" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
-
-          - image: '3.13/amqp1/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.13-amqp1" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
-
-          - image: '3.13/shovel/Dockerfile'
-            tags: [ "spryker/rabbitmq:3.13-shovel" ]
-            platforms: [ "linux/amd64", "linux/arm64" ]
-    steps:
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and push
-        id: docker_build
-        uses: docker/build-push-action@v2
-        with:
-          push: ${{ github.ref == 'refs/heads/master' }}
-          file: ${{ matrix.image }}
-          tags: ${{ join(matrix.tags) }}
-          platforms: ${{ join(matrix.platforms) }}
+    name: Build and Scan - ${{ matrix.tag }}
+    uses: spryker-projects/gha-reusable-workflows/.github/workflows/ci.yml@main
+    with:
+      image: ${{ matrix.image }}
+      tag: ${{ matrix.tag }}
+      platforms: ${{ matrix.platforms }}
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      SLACK_WEBHOOK_URL: ${{ secrets.WEBHOOK_CE_RELEASE_IMAGES_RABBITMQ }}

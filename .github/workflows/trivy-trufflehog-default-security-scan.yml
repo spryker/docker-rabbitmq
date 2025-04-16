@@ -1,0 +1,39 @@
+name: Build and Scan Docker Images with Trivy && Trufflehog
+
+on:
+  push:
+    branches-ignore:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-scan-images-for-vulnerabilities:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          ### Rabbitmq 3.13
+          - context: "3.13"
+            dockerfile: "Dockerfile"
+            image: "spryker/rabbitmq:3.13"
+            platforms: "linux/amd64"
+          - context: "3.13/amqp1"
+            dockerfile: "Dockerfile"
+            image: "spryker/rabbitmq:3.13-amqp1"
+            platforms: "linux/amd64"
+          - context: "3.13/shovel"
+            dockerfile: "Dockerfile"
+            image: "spryker/rabbitmq:3.13-shovel"
+            platforms: "linux/amd64"
+
+    name: Build and Scan - ${{ matrix.image }}
+    uses: spryker-projects/gha-reusable-workflows/.github/workflows/trivy-trufflehog-default-security-scan.yml@main
+    with:
+      context: ${{ matrix.context }}
+      dockerfile: ${{ matrix.dockerfile }}
+      image: ${{ matrix.image }}
+      platforms: ${{ matrix.platforms }}
+    secrets: inherit

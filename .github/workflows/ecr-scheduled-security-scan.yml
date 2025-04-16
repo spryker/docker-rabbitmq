@@ -1,0 +1,44 @@
+name: ECR RabbitMQ Vulnerability Scan
+
+on:
+  workflow_dispatch  # 👈 keeps workflow valid but disables automatic triggers. See below
+#   Disabled automatic triggers until results of discussion with Secirity team
+#   schedule:
+#     - cron: '10 0 * * *'
+#   push:
+#     branches:
+#       - master
+
+jobs:
+  vulnerability-detection:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          ### Rabbitmq 3.13
+          - image: "3.13/Dockerfile"
+            tag: "3.13"
+            platforms: "linux/amd64"
+            image_type: "RabbitMQ"
+          - image: "3.13/amqp1/Dockerfile"
+            tag: "3.13-amqp1"
+            platforms: "linux/amd64"
+            image_type: "RabbitMQ"
+          - image: "3.13/shovel/Dockerfile"
+            tag: "3.13-shovel"
+            platforms: "linux/amd64"
+            image_type: "RabbitMQ"
+
+    uses: spryker-projects/gha-reusable-workflows/.github/workflows/ecr-scheduled-security-scan.yml@main
+    with:
+      image: ${{ matrix.image }}
+      tag: ${{ matrix.tag }}
+      platforms: ${{ matrix.platforms }}
+      image_type: ${{ matrix.image_type }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_ECR_REPO: ${{ secrets.AWS_ECR_REPO }}
+      SLACK_WEBHOOK_URL: ${{ secrets.WEBHOOK_CE_SECURITY_SCAN_RABBITMQ }}
