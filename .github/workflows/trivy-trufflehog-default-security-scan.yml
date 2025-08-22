@@ -15,18 +15,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          ### Rabbitmq 4.1
-          - context: "4.1"
+          ### Rabbitmq 3.13
+          - context: "3.13"
             dockerfile: "Dockerfile"
-            image: "spryker/rabbitmq:4.1"
+            image: "spryker/rabbitmq:3.13"
             platforms: "linux/amd64"
-          - context: "4.1/amqp1"
+          - context: "3.13/amqp1"
             dockerfile: "Dockerfile"
-            image: "spryker/rabbitmq:4.1-amqp1"
+            image: "spryker/rabbitmq:3.13-amqp1"
             platforms: "linux/amd64"
-          - context: "4.1/shovel"
+          - context: "3.13/shovel"
             dockerfile: "Dockerfile"
-            image: "spryker/rabbitmq:4.1-shovel"
+            image: "spryker/rabbitmq:3.13-shovel"
             platforms: "linux/amd64"
 
     name: Build and Scan - ${{ matrix.image }}
