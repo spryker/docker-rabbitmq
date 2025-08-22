@@ -15,17 +15,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          ### Rabbitmq 3.13
-          - image: "3.13/Dockerfile"
-            tag: "3.13"
+          ### Rabbitmq 4.1
+          - image: "4.1/Dockerfile"
+            tag: "4.1"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
-          - image: "3.13/amqp1/Dockerfile"
-            tag: "3.13-amqp1"
+          - image: "4.1/amqp1/Dockerfile"
+            tag: "4.1-amqp1"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
-          - image: "3.13/shovel/Dockerfile"
-            tag: "3.13-shovel"
+          - image: "4.1/shovel/Dockerfile"
+            tag: "4.1-shovel"
             platforms: "linux/amd64"
             image_type: "RabbitMQ"
 
