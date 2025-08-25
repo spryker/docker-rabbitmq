@@ -8,7 +8,7 @@ RUN rabbitmq-plugins enable --offline rabbitmq_management \
     && rabbitmq-plugins enable --offline rabbitmq_shovel  \
     && rabbitmq-plugins enable --offline rabbitmq_shovel_management
 
-COPY setup-rabbitmq.sh /usr/local/bin/setup-rabbitmq.sh
-RUN chmod +x /usr/local/bin/setup-rabbitmq.sh
+COPY migrate-rabbitmq-3.13-to-4.1.sh /usr/local/bin/migrate-rabbitmq-3.13-to-4.1.sh
+RUN chmod +x /usr/local/bin/migrate-rabbitmq-3.13-to-4.1.sh
 
-CMD ["setup-rabbitmq.sh"]
+CMD ["migrate-rabbitmq-3.13-to-4.1.sh"]
