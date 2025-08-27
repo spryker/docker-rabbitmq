@@ -90,6 +90,17 @@ jobs:
             tag: "spryker/rabbitmq:3.13-shovel"
             platforms: "linux/amd64,linux/arm64"
 
+          # RabbitMQ 4.1 variants
+          - image: "3.13/Dockerfile"
+            tag: "spryker/rabbitmq:3.13"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.13/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:3.13-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "3.13/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:3.13-shovel"
+            platforms: "linux/amd64,linux/arm64"
+
     name: Build and Scan - ${{ matrix.tag }}
     uses: spryker-projects/gha-reusable-workflows/.github/workflows/ci.yml@main
     with:
