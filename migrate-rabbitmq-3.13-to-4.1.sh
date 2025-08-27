@@ -269,19 +269,19 @@ setup_shovels() {
         if [ "$(echo "$queues_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
             echo >&2 "No queues found for vhost: $vhost"
             continue
-        }
+        fi
 
         echo "$queues_json" | jq -c '.[]?' | while read -r queue_data; do
             # Skip if queue_data is null or empty
             if [ -z "$queue_data" ] || [ "$queue_data" = "null" ]; then
                 continue
-            }
+            fi
 
             local queue_name=$(echo "$queue_data" | jq -r '.name // empty')
             if [ -z "$queue_name" ]; then
                 echo >&2 "Warning: Queue without name found, skipping."
                 continue
-            }
+            fi
 
             local queue_type=$(echo "$queue_data" | jq -r '.arguments."x-queue-type" // "classic"')
 
@@ -348,7 +348,7 @@ monitor_migration() {
             echo >&2 "Error: Failed to get vhosts from source RabbitMQ. Retrying in 30 seconds..."
             sleep 30
             continue
-        }
+        fi
 
         # Extract vhost names
         local vhosts=$(echo "$vhosts_json" | jq -r '.[] | select(.name != null) | .name')
@@ -361,24 +361,24 @@ monitor_migration() {
             if ! echo "$queues_json" | jq empty > /dev/null 2>&1; then
                 echo >&2 "Warning: Failed to get queues for vhost $vhost. Skipping."
                 continue
-            }
+            fi
 
             # Check if the response is an array and not empty
             if [ "$(echo "$queues_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
                 echo >&2 "No queues found for vhost: $vhost"
                 continue
-            }
+            fi
 
             echo "$queues_json" | jq -c '.[]?' | while read -r queue_data; do
                 # Skip if queue_data is null or empty
                 if [ -z "$queue_data" ] || [ "$queue_data" = "null" ]; then
                     continue
-                }
+                fi
 
                 local queue_name=$(echo "$queue_data" | jq -r '.name // empty')
                 if [ -z "$queue_name" ]; then
                     continue
-                }
+                fi
 
                 local messages=$(echo "$queue_data" | jq -r '.messages // 0')
 
@@ -454,7 +454,7 @@ verify_migration() {
         if [ "$(echo "$source_queues_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
             echo >&2 "No queues found for vhost: $vhost"
             continue
-        }
+        fi
 
         local target_queues_json=$(curl -s -u "$TARGET_RABBITMQ_USER:$TARGET_RABBITMQ_PASS" \
             "http://$TARGET_RABBITMQ_HOST:$TARGET_RABBITMQ_MGMT_PORT/api/queues/$vhost")
@@ -469,18 +469,18 @@ verify_migration() {
         if [ "$(echo "$target_queues_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
             echo >&2 "No queues found for vhost: $vhost"
             continue
-        }
+        fi
 
         echo "$source_queues_json" | jq -c '.[]?' | while read -r queue_data; do
             # Skip if queue_data is null or empty
             if [ -z "$queue_data" ] || [ "$queue_data" = "null" ]; then
                 continue
-            }
+            fi
 
             local queue_name=$(echo "$queue_data" | jq -r '.name // empty')
             if [ -z "$queue_name" ]; then
                 continue
-            }
+            fi
 
             # Skip temporary queues
             if [[ "$queue_name" == *temporary_* ]]; then
@@ -526,18 +526,18 @@ cleanup_shovels() {
         if [ "$(echo "$shovels_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
             echo >&2 "No shovels found for vhost: $vhost"
             continue
-        }
+        fi
 
         echo "$shovels_json" | jq -c '.[]?' | while read -r shovel; do
             # Skip if shovel is null or empty
             if [ -z "$shovel" ] || [ "$shovel" = "null" ]; then
                 continue
-            }
+            fi
 
             local shovel_name=$(echo "$shovel" | jq -r '.name // empty')
             if [ -z "$shovel_name" ]; then
                 continue
-            }
+            fi
 
             if [[ "$shovel_name" == migrate_to_4.1_* ]]; then
                 echo >&2 "Deleting shovel: $shovel_name from vhost: $vhost"
