@@ -81,9 +81,17 @@ migrate_vhosts() {
     echo >&2 "Migrating vhosts..."
 
     # Get list of vhosts from source
-    local vhosts=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts" | \
-        jq -r '.[].name')
+    local vhosts_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts")
+
+    # Check if we got valid JSON
+    if ! echo "$vhosts_json" | jq empty > /dev/null 2>&1; then
+        echo >&2 "Error: Failed to get vhosts from source RabbitMQ. Response was not valid JSON."
+        return 1
+    fi
+
+    # Extract vhost names
+    local vhosts=$(echo "$vhosts_json" | jq -r '.[] | select(.name != null) | .name')
 
     # Create vhosts on target (skip default vhost '/')
     for vhost in $vhosts; do
@@ -108,12 +116,16 @@ migrate_users_and_permissions() {
     local definitions=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
         "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/definitions")
 
+    # Check if we got valid JSON
+    if ! echo "$definitions" | jq empty > /dev/null 2>&1; then
+        echo >&2 "Error: Failed to get definitions from source RabbitMQ. Response was not valid JSON."
+        return 1
+    fi
+
     # Extract users (excluding guest user to avoid conflicts)
     local users=$(echo "$definitions" | jq '.users | map(select(.name != "guest"))')
 
-    # Extract permissions
-    local permissions=$(echo "$definitions" | jq '.permissions // []')
-
+    # Check if users is not null or empty
     if [ "$users" != "[]" ] && [ "$users" != "null" ]; then
         echo >&2 "Importing users with original password hashes..."
 
@@ -131,6 +143,10 @@ migrate_users_and_permissions() {
         echo >&2 "No additional users found to migrate."
     fi
 
+    # Extract permissions
+    local permissions=$(echo "$definitions" | jq '.permissions // []')
+
+    # Check if permissions is not null or empty
     if [ "$permissions" != "[]" ] && [ "$permissions" != "null" ]; then
         echo >&2 "Importing permissions..."
 
@@ -155,21 +171,51 @@ migrate_users_and_permissions() {
 migrate_policies() {
     echo >&2 "Migrating policies..."
 
-    local vhosts=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts" | \
-        jq -r '.[].name')
+    local vhosts_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts")
+
+    # Check if we got valid JSON
+    if ! echo "$vhosts_json" | jq empty > /dev/null 2>&1; then
+        echo >&2 "Error: Failed to get vhosts from source RabbitMQ. Response was not valid JSON."
+        return 1
+    fi
+
+    # Extract vhost names
+    local vhosts=$(echo "$vhosts_json" | jq -r '.[] | select(.name != null) | .name')
 
     for vhost in $vhosts; do
-        local policies=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/policies/$vhost" | \
-            jq -c '.[]')
+        local policies_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/policies/$vhost")
 
-        echo "$policies" | while read -r policy; do
-            local name=$(echo "$policy" | jq -r '.name')
-            local pattern=$(echo "$policy" | jq -r '.pattern')
-            local apply_to=$(echo "$policy" | jq -r '.apply-to')
-            local definition=$(echo "$policy" | jq -r '.definition')
-            local priority=$(echo "$policy" | jq -r '.priority')
+        # Check if we got valid JSON
+        if ! echo "$policies_json" | jq empty > /dev/null 2>&1; then
+            echo >&2 "Warning: Failed to get policies for vhost $vhost. Skipping."
+            continue
+        fi
+
+        # Check if the response is an array and not empty
+        if [ "$(echo "$policies_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
+            echo >&2 "No policies found for vhost: $vhost"
+            continue
+        fi
+
+        echo "$policies_json" | jq -c '.[]?' | while read -r policy; do
+            # Skip if policy is null or empty
+            if [ -z "$policy" ] || [ "$policy" = "null" ]; then
+                continue
+            fi
+
+            # Extract policy details with null checks
+            local name=$(echo "$policy" | jq -r '.name // empty')
+            if [ -z "$name" ]; then
+                echo >&2 "Warning: Policy without name found, skipping."
+                continue
+            fi
+
+            local pattern=$(echo "$policy" | jq -r '.pattern // ""')
+            local apply_to=$(echo "$policy" | jq -r '.["apply-to"] // "queues"')
+            local definition=$(echo "$policy" | jq -r '.definition // {}')
+            local priority=$(echo "$policy" | jq -r '.priority // 0')
 
             echo >&2 "Creating policy: $name on vhost: $vhost"
 
@@ -179,11 +225,6 @@ migrate_policies() {
             # Remove ha-mode and ha-sync-mode from definition if present
             # These are not compatible with RabbitMQ 4.x
             definition=$(echo "$definition" | jq 'del(.["ha-mode", "ha-sync-mode"])')
-
-            # Set a default apply_to if it's null or empty
-            if [[ "$apply_to" == "null" || -z "$apply_to" ]]; then
-                apply_to="queues"
-            fi
 
             curl -s -u "$TARGET_RABBITMQ_USER:$TARGET_RABBITMQ_PASS" \
                 -X PUT "http://$TARGET_RABBITMQ_HOST:$TARGET_RABBITMQ_MGMT_PORT/api/policies/$encoded_vhost/$name" \
@@ -199,20 +240,49 @@ migrate_policies() {
 setup_shovels() {
     echo >&2 "Setting up shovels for queue migration..."
 
-    local vhosts=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts" | \
-        jq -r '.[].name')
+    local vhosts_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts")
+
+    # Check if we got valid JSON
+    if ! echo "$vhosts_json" | jq empty > /dev/null 2>&1; then
+        echo >&2 "Error: Failed to get vhosts from source RabbitMQ. Response was not valid JSON."
+        return 1
+    fi
+
+    # Extract vhost names
+    local vhosts=$(echo "$vhosts_json" | jq -r '.[] | select(.name != null) | .name')
 
     for vhost in $vhosts; do
         echo >&2 "Processing vhost: $vhost"
 
         # Get queues in the source vhost
-        local queues=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/queues/$vhost" | \
-            jq -c '.[]')
+        local queues_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/queues/$vhost")
 
-        echo "$queues" | while read -r queue_data; do
-            local queue_name=$(echo "$queue_data" | jq -r '.name')
+        # Check if we got valid JSON
+        if ! echo "$queues_json" | jq empty > /dev/null 2>&1; then
+            echo >&2 "Warning: Failed to get queues for vhost $vhost. Skipping."
+            continue
+        fi
+
+        # Check if the response is an array and not empty
+        if [ "$(echo "$queues_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
+            echo >&2 "No queues found for vhost: $vhost"
+            continue
+        }
+
+        echo "$queues_json" | jq -c '.[]?' | while read -r queue_data; do
+            # Skip if queue_data is null or empty
+            if [ -z "$queue_data" ] || [ "$queue_data" = "null" ]; then
+                continue
+            }
+
+            local queue_name=$(echo "$queue_data" | jq -r '.name // empty')
+            if [ -z "$queue_name" ]; then
+                echo >&2 "Warning: Queue without name found, skipping."
+                continue
+            }
+
             local queue_type=$(echo "$queue_data" | jq -r '.arguments."x-queue-type" // "classic"')
 
             # Skip temporary queues
@@ -270,18 +340,47 @@ monitor_migration() {
         fi
 
         local all_queues_empty=true
-        local vhosts=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts" | \
-            jq -r '.[].name')
+        local vhosts_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts")
+
+        # Check if we got valid JSON
+        if ! echo "$vhosts_json" | jq empty > /dev/null 2>&1; then
+            echo >&2 "Error: Failed to get vhosts from source RabbitMQ. Retrying in 30 seconds..."
+            sleep 30
+            continue
+        }
+
+        # Extract vhost names
+        local vhosts=$(echo "$vhosts_json" | jq -r '.[] | select(.name != null) | .name')
 
         for vhost in $vhosts; do
-            local queues=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-                "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/queues/$vhost" | \
-                jq -c '.[]')
+            local queues_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+                "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/queues/$vhost")
 
-            echo "$queues" | while read -r queue_data; do
-                local queue_name=$(echo "$queue_data" | jq -r '.name')
-                local messages=$(echo "$queue_data" | jq -r '.messages')
+            # Check if we got valid JSON
+            if ! echo "$queues_json" | jq empty > /dev/null 2>&1; then
+                echo >&2 "Warning: Failed to get queues for vhost $vhost. Skipping."
+                continue
+            }
+
+            # Check if the response is an array and not empty
+            if [ "$(echo "$queues_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
+                echo >&2 "No queues found for vhost: $vhost"
+                continue
+            }
+
+            echo "$queues_json" | jq -c '.[]?' | while read -r queue_data; do
+                # Skip if queue_data is null or empty
+                if [ -z "$queue_data" ] || [ "$queue_data" = "null" ]; then
+                    continue
+                }
+
+                local queue_name=$(echo "$queue_data" | jq -r '.name // empty')
+                if [ -z "$queue_name" ]; then
+                    continue
+                }
+
+                local messages=$(echo "$queue_data" | jq -r '.messages // 0')
 
                 # Skip temporary queues
                 if [[ "$queue_name" == *temporary_* ]]; then
@@ -309,13 +408,29 @@ monitor_migration() {
 verify_migration() {
     echo >&2 "Verifying migration..."
 
-    local source_vhosts=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts" | \
-        jq -r '.[].name')
+    local source_vhosts_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts")
 
-    local target_vhosts=$(curl -s -u "$TARGET_RABBITMQ_USER:$TARGET_RABBITMQ_PASS" \
-        "http://$TARGET_RABBITMQ_HOST:$TARGET_RABBITMQ_MGMT_PORT/api/vhosts" | \
-        jq -r '.[].name')
+    # Check if we got valid JSON
+    if ! echo "$source_vhosts_json" | jq empty > /dev/null 2>&1; then
+        echo >&2 "Error: Failed to get vhosts from source RabbitMQ. Response was not valid JSON."
+        return 1
+    fi
+
+    # Extract vhost names
+    local source_vhosts=$(echo "$source_vhosts_json" | jq -r '.[] | select(.name != null) | .name')
+
+    local target_vhosts_json=$(curl -s -u "$TARGET_RABBITMQ_USER:$TARGET_RABBITMQ_PASS" \
+        "http://$TARGET_RABBITMQ_HOST:$TARGET_RABBITMQ_MGMT_PORT/api/vhosts")
+
+    # Check if we got valid JSON
+    if ! echo "$target_vhosts_json" | jq empty > /dev/null 2>&1; then
+        echo >&2 "Error: Failed to get vhosts from target RabbitMQ. Response was not valid JSON."
+        return 1
+    fi
+
+    # Extract vhost names
+    local target_vhosts=$(echo "$target_vhosts_json" | jq -r '.[] | select(.name != null) | .name')
 
     # Check if all vhosts were migrated
     for vhost in $source_vhosts; do
@@ -326,22 +441,54 @@ verify_migration() {
 
     # Check if all queues were migrated
     for vhost in $source_vhosts; do
-        local source_queues=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/queues/$vhost" | \
-            jq -r '.[].name')
+        local source_queues_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/queues/$vhost")
 
-        local target_queues=$(curl -s -u "$TARGET_RABBITMQ_USER:$TARGET_RABBITMQ_PASS" \
-            "http://$TARGET_RABBITMQ_HOST:$TARGET_RABBITMQ_MGMT_PORT/api/queues/$vhost" | \
-            jq -r '.[].name')
+        # Check if we got valid JSON
+        if ! echo "$source_queues_json" | jq empty > /dev/null 2>&1; then
+            echo >&2 "Warning: Failed to get queues for vhost $vhost. Skipping."
+            continue
+        fi
 
-        for queue in $source_queues; do
+        # Check if the response is an array and not empty
+        if [ "$(echo "$source_queues_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
+            echo >&2 "No queues found for vhost: $vhost"
+            continue
+        }
+
+        local target_queues_json=$(curl -s -u "$TARGET_RABBITMQ_USER:$TARGET_RABBITMQ_PASS" \
+            "http://$TARGET_RABBITMQ_HOST:$TARGET_RABBITMQ_MGMT_PORT/api/queues/$vhost")
+
+        # Check if we got valid JSON
+        if ! echo "$target_queues_json" | jq empty > /dev/null 2>&1; then
+            echo >&2 "Warning: Failed to get queues for vhost $vhost. Skipping."
+            continue
+        fi
+
+        # Check if the response is an array and not empty
+        if [ "$(echo "$target_queues_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
+            echo >&2 "No queues found for vhost: $vhost"
+            continue
+        }
+
+        echo "$source_queues_json" | jq -c '.[]?' | while read -r queue_data; do
+            # Skip if queue_data is null or empty
+            if [ -z "$queue_data" ] || [ "$queue_data" = "null" ]; then
+                continue
+            }
+
+            local queue_name=$(echo "$queue_data" | jq -r '.name // empty')
+            if [ -z "$queue_name" ]; then
+                continue
+            }
+
             # Skip temporary queues
-            if [[ "$queue" == *temporary_* ]]; then
+            if [[ "$queue_name" == *temporary_* ]]; then
                 continue
             fi
 
-            if ! echo "$target_queues" | grep -q "^$queue$"; then
-                echo >&2 "Warning: Queue $queue in vhost $vhost was not migrated to the target."
+            if ! echo "$target_queues_json" | jq -c '.[]?' | grep -q "\"name\":\"$queue_name\""; then
+                echo >&2 "Warning: Queue $queue_name in vhost $vhost was not migrated to the target."
             fi
         done
     done
@@ -353,20 +500,49 @@ verify_migration() {
 cleanup_shovels() {
     echo >&2 "Cleaning up shovels..."
 
-    local vhosts=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts" | \
-        jq -r '.[].name')
+    local vhosts_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+        "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/vhosts")
+
+    # Check if we got valid JSON
+    if ! echo "$vhosts_json" | jq empty > /dev/null 2>&1; then
+        echo >&2 "Error: Failed to get vhosts from source RabbitMQ. Response was not valid JSON."
+        return 1
+    fi
+
+    # Extract vhost names
+    local vhosts=$(echo "$vhosts_json" | jq -r '.[] | select(.name != null) | .name')
 
     for vhost in $vhosts; do
-        local shovels=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/parameters/shovel/$vhost" | \
-            jq -r '.[].name')
+        local shovels_json=$(curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
+            "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/parameters/shovel/$vhost")
 
-        for shovel in $shovels; do
-            if [[ "$shovel" == migrate_to_4.1_* ]]; then
-                echo >&2 "Deleting shovel: $shovel from vhost: $vhost"
+        # Check if we got valid JSON
+        if ! echo "$shovels_json" | jq empty > /dev/null 2>&1; then
+            echo >&2 "Warning: Failed to get shovels for vhost $vhost. Skipping."
+            continue
+        fi
+
+        # Check if the response is an array and not empty
+        if [ "$(echo "$shovels_json" | jq 'if type=="array" then length else 0 end')" -eq 0 ]; then
+            echo >&2 "No shovels found for vhost: $vhost"
+            continue
+        }
+
+        echo "$shovels_json" | jq -c '.[]?' | while read -r shovel; do
+            # Skip if shovel is null or empty
+            if [ -z "$shovel" ] || [ "$shovel" = "null" ]; then
+                continue
+            }
+
+            local shovel_name=$(echo "$shovel" | jq -r '.name // empty')
+            if [ -z "$shovel_name" ]; then
+                continue
+            }
+
+            if [[ "$shovel_name" == migrate_to_4.1_* ]]; then
+                echo >&2 "Deleting shovel: $shovel_name from vhost: $vhost"
                 curl -s -u "$SOURCE_RABBITMQ_USER:$SOURCE_RABBITMQ_PASS" \
-                    -X DELETE "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/parameters/shovel/$vhost/$shovel"
+                    -X DELETE "http://$SOURCE_RABBITMQ_HOST:$SOURCE_RABBITMQ_MGMT_PORT/api/parameters/shovel/$vhost/$shovel_name"
             fi
         done
     done
