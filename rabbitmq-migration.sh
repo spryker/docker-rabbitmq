@@ -140,19 +140,38 @@ setup_shadow_environment() {
     mkdir -p "$SHADOW_BASE"
     export HOME="$SHADOW_BASE"
 
-    # Create Erlang cookie in shadow
-    local cookie="$HOME/.erlang.cookie"
-    if [ ! -s "$cookie" ]; then
-        echo "rabbitmq-cookie-$(date +%s)" > "$cookie"
-        chmod 600 "$cookie"
-        log "Created new Erlang cookie"
+    # Use consistent Erlang cookie between server and CLI
+    local shadow_cookie="$HOME/.erlang.cookie"
+    local main_cookie="/var/lib/rabbitmq/.erlang.cookie"
+
+    # Try to use existing cookie from main directory first
+    if [ -s "$main_cookie" ] && [ -r "$main_cookie" ]; then
+        cp "$main_cookie" "$shadow_cookie"
+        chmod 600 "$shadow_cookie"
+        log "Copied existing Erlang cookie to shadow"
+    elif [ -s "$shadow_cookie" ]; then
+        log "Using existing shadow Erlang cookie"
+    else
+        # Create new cookie if none exists
+        echo "rabbitmq-cookie-$(date +%s)" > "$shadow_cookie"
+        chmod 600 "$shadow_cookie"
+        log "Created new Erlang cookie in shadow"
+
+        # Copy to main directory if writable
+        if [ -w "/var/lib/rabbitmq" ]; then
+            cp "$shadow_cookie" "$main_cookie"
+            chmod 600 "$main_cookie"
+            chown rabbitmq:rabbitmq "$main_cookie" 2>/dev/null || true
+            log "Synchronized cookie to main directory"
+        fi
     fi
 
-    local cookie_val="$(cat "$cookie")"
+    local cookie_val="$(cat "$shadow_cookie")"
     export RABBITMQ_SERVER_ERL_ARGS="-setcookie ${cookie_val}"
     export RABBITMQ_CTL_ERL_ARGS="-setcookie ${cookie_val}"
 
-    log "✅ Shadow environment ready"
+    log "Cookie value: ${cookie_val:0:10}..."
+    log "✅ Shadow environment ready with synchronized cookie"
 }
 
 configure_rabbitmq_environment() {
@@ -299,7 +318,7 @@ enable_management_ui() {
 # =============================================================================
 
 update_rabbitmq_policies() {
-    log "=== Updating RabbitMQ Policies ==="
+    log "=== Updating RabbitMQ Policies (Safe Mode) ==="
 
     # Get list of all vhosts
     local vhosts
@@ -310,31 +329,108 @@ update_rabbitmq_policies() {
 
     while IFS= read -r vhost; do
         if [ -n "$vhost" ]; then
-            log "Updating policies for vhost: $vhost"
+            log "Checking policies for vhost: $vhost"
 
-            # Remove any existing HA policies that might conflict with RabbitMQ 4.1
-            rabbitmqctl clear_policy -p "$vhost" "ha-all" 2>/dev/null || true
-            rabbitmqctl clear_policy -p "$vhost" "ha-two" 2>/dev/null || true
-            rabbitmqctl clear_policy -p "$vhost" "ha-nodes" 2>/dev/null || true
+            # SAFE APPROACH: Only list policies, don't remove them during migration
+            # Removing HA policies during migration can cause message loss
+            log "📋 Existing policies in vhost '$vhost':"
+            rabbitmqctl list_policies -p "$vhost" 2>/dev/null || log "No policies found"
 
-            # Note: Not setting quorum policies since we're preserving classic queues
-            log "Cleared legacy HA policies for vhost: $vhost"
+            # Note: Policy cleanup should be done AFTER migration validation
+            log "⚠️ Preserving existing policies during migration for data safety"
         fi
     done <<< "$vhosts"
 
-    log "✅ Policy update complete"
+    log "✅ Policy check complete (policies preserved for safety)"
 }
 
 # =============================================================================
 # RABBITMQ 4.1 FEATURE FLAGS
 # =============================================================================
 
+# =============================================================================
+# MESSAGE COUNT VALIDATION FUNCTIONS
+# =============================================================================
+
+count_messages_in_queues() {
+    log "=== Counting Messages in All Queues ==="
+
+    local total_messages=0
+    local queue_info
+    local vhosts
+
+    # Get all vhosts first
+    vhosts=$(rabbitmqctl list_vhosts --quiet 2>/dev/null) || {
+        log "⚠️ Could not list vhosts for message counting"
+        return 1
+    }
+
+    # Count messages in each vhost separately
+    while IFS= read -r vhost; do
+        if [ -n "$vhost" ] && [ "$vhost" != "name" ]; then
+            log "Checking vhost: $vhost"
+
+            # Get all queues with message counts for this vhost
+            queue_info=$(rabbitmqctl list_queues -p "$vhost" --quiet name messages 2>/dev/null) || {
+                log "⚠️ Could not list queues for vhost $vhost"
+                continue
+            }
+
+            local vhost_messages=0
+            while IFS=$'\t' read -r queue_name messages; do
+                # Skip empty lines and ensure both variables are set
+                if [ -n "$queue_name" ] && [ -n "$messages" ]; then
+                    # Validate that messages is a number
+                    if [[ "$messages" =~ ^[0-9]+$ ]]; then
+                        if [ "$messages" != "0" ]; then
+                            log "  Queue '$queue_name': $messages messages"
+                        fi
+                        vhost_messages=$((vhost_messages + messages))
+                    else
+                        log "⚠️ Invalid message count '$messages' for queue '$queue_name' - skipping"
+                    fi
+                fi
+            done <<< "$queue_info"
+
+            log "Vhost '$vhost': $vhost_messages total messages"
+            total_messages=$((total_messages + vhost_messages))
+        fi
+    done <<< "$vhosts"
+
+    log "📊 Total messages across all queues: $total_messages"
+    echo "$total_messages"
+}
+
+validate_message_preservation() {
+    local before_count="$1"
+    local after_count="$2"
+    local tolerance=5  # Allow 5 message difference for timing
+
+    log "=== Validating Message Preservation ==="
+    log "Messages before migration: $before_count"
+    log "Messages after migration: $after_count"
+
+    local difference=$((before_count - after_count))
+    local abs_difference=${difference#-}  # Absolute value
+
+    if [ "$abs_difference" -le "$tolerance" ]; then
+        log "✅ Message preservation validated (difference: $difference, within tolerance: $tolerance)"
+        return 0
+    else
+        log "🚨 CRITICAL: Message loss detected!"
+        log "   Lost messages: $difference"
+        log "   This exceeds tolerance of $tolerance messages"
+        log "   Migration should be considered FAILED"
+        return 1
+    fi
+}
+
 enable_rabbitmq_41_features() {
     log "=== Enabling RabbitMQ 4.1 Feature Flags ==="
 
-    # List of safe feature flags to enable for RabbitMQ 4.1
+    # List of SAFE feature flags to enable for RabbitMQ 4.1
+    # Removed potentially dangerous flags that could affect message storage
     local safe_features=(
-        "classic_mirrored_queue_version"
         "drop_unroutable_metric"
         "empty_basic_get_metric"
         "implicit_default_bindings"
@@ -363,14 +459,15 @@ enable_rabbitmq_41_features() {
         fi
     done
 
-    # Skip problematic feature flags that might cause issues
+    # Skip problematic feature flags that might cause message loss
     local skip_features=(
-        "tracking_records_in_ets"
-        "restart_streams"
+        "classic_mirrored_queue_version"  # Can affect message storage format
+        "tracking_records_in_ets"         # Can cause instability
+        "restart_streams"                 # Can affect stream queues
     )
 
-    log "Skipping potentially problematic feature flags: ${skip_features[*]}"
-    log "✅ RabbitMQ 4.1 feature flags configuration complete"
+    log "⚠️ Skipping potentially dangerous feature flags: ${skip_features[*]}"
+    log "✅ RabbitMQ 4.1 feature flags configuration complete (safe mode)"
 }
 
 # =============================================================================
@@ -379,7 +476,24 @@ enable_rabbitmq_41_features() {
 
 setup_spryker_environment() {
     log "=== Setting up Spryker environment ==="
-    # Add Spryker environment setup code here
+
+    # Create required vhosts for Spryker
+    local required_vhosts=("eu-docker" "us-docker")
+
+    for vhost in "${required_vhosts[@]}"; do
+        if ! rabbitmqctl list_vhosts | grep -q "^${vhost}$"; then
+            log "Creating missing vhost: ${vhost}"
+            rabbitmqctl add_vhost "$vhost"
+
+            # Set permissions for spryker user on new vhost
+            rabbitmqctl set_permissions -p "$vhost" spryker ".*" ".*" ".*"
+            log "✅ Created vhost '${vhost}' with spryker permissions"
+        else
+            log "Vhost '${vhost}' already exists"
+        fi
+    done
+
+    log "✅ Spryker environment setup complete"
 }
 
 # =============================================================================
@@ -436,7 +550,49 @@ print_completion_message() {
 # MAIN EXECUTION FUNCTION
 # =============================================================================
 
+
+
 main() {
+    # Check for Docker environment indicators
+    local is_docker=false
+
+    # Check Docker-specific environment variables
+    if [ -n "${SPRYKER_DOCKER_SDK_PLATFORM:-}" ] || [ -n "${SPRYKER_DOCKER_TAG:-}" ]; then
+        log "Docker detected via Spryker environment variables"
+        is_docker=true
+    fi
+
+    # Check for Docker container indicators
+    if [ -f "/.dockerenv" ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
+        log "Docker detected via container indicators"
+        is_docker=true
+    fi
+
+    # Check hostname patterns typical for Docker
+    if echo "${HOSTNAME:-}" | grep -qE '^[a-f0-9]{12}$|broker|rabbitmq'; then
+        log "Docker detected via hostname pattern: ${HOSTNAME:-}"
+        is_docker=true
+    fi
+
+    # Check for --data --build scenario or Docker environment
+    if [ "$is_docker" = true ] || [ "$#" -gt 0 ]; then
+        if [ "$#" -gt 0 ]; then
+            # Check command line arguments for --data --build pattern
+            for arg in "$@"; do
+                case "$arg" in
+                    --data|--build)
+                        log "🚀 Docker SDK --data --build detected - using standard migration"
+                        ;;
+                esac
+            done
+        fi
+
+        # If Docker detected but no specific arguments, use standard migration startup
+        if [ "$is_docker" = true ]; then
+            log "🚀 Docker environment detected - using standard RabbitMQ 4.1 migration"
+        fi
+    fi
+
     log "=== RabbitMQ 3.13 → 4.1 Complete Production Migration ==="
 
     # Phase 1: Detection and Analysis
@@ -458,6 +614,35 @@ main() {
     verify_rabbitmq_status
     show_current_state
 
+    # Phase 5.1: Wait for Queue Recovery and Count Messages
+    log "⏳ Waiting for queue recovery to complete..."
+    sleep 10  # Wait for queue recovery
+
+    log "📊 Counting messages before any configuration changes..."
+    local messages_before
+    messages_before=$(count_messages_in_queues) || messages_before="unknown"
+
+    # Validate that we actually have queues recovered
+    local queue_count
+    queue_count=$(rabbitmqctl list_queues --quiet | wc -l) || queue_count=0
+    log "📋 Found $queue_count queues after recovery"
+
+    if [ "$messages_before" = "0" ] && [ "$queue_count" -gt "50" ]; then
+        log "⚠️ WARNING: Found $queue_count queues but 0 messages - this may indicate incomplete recovery"
+        log "⏳ Waiting additional 20 seconds for full recovery..."
+        sleep 20
+        messages_before=$(count_messages_in_queues) || messages_before="unknown"
+        log "🔄 Recounted messages: $messages_before"
+
+        # If still 0 messages with many queues, this is suspicious
+        if [ "$messages_before" = "0" ] && [ "$queue_count" -gt "100" ]; then
+            log "🚨 CRITICAL: $queue_count queues recovered but 0 messages found!"
+            log "🚨 This indicates potential message loss during recovery!"
+            log "🛑 STOPPING MIGRATION to prevent further data loss"
+            exit 1
+        fi
+    fi
+
     # Phase 6: Enable Management UI
     enable_management_ui
 
@@ -478,6 +663,22 @@ main() {
 
     # Phase 12: Feature Validation
     validate_41_features
+
+    # Phase 12.1: Count Messages After Changes
+    log "📊 Counting messages after all configuration changes..."
+    local messages_after
+    messages_after=$(count_messages_in_queues) || messages_after="unknown"
+
+    # Phase 12.2: Validate Message Preservation
+    if [ "$messages_before" != "unknown" ] && [ "$messages_after" != "unknown" ]; then
+        if ! validate_message_preservation "$messages_before" "$messages_after"; then
+            log "🚨 MIGRATION FAILED: Message loss detected!"
+            log "🛑 Stopping migration process"
+            exit 1
+        fi
+    else
+        log "⚠️ Could not validate message counts - manual verification required"
+    fi
 
     # Phase 13: Final Verification
     log "=== Final Migration Verification ==="

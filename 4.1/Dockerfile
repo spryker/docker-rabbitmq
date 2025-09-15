@@ -10,7 +10,5 @@ RUN rabbitmq-plugins enable --offline rabbitmq_management \
 
 COPY rabbitmq-migration.sh /usr/local/bin/rabbitmq-migration.sh
 RUN chmod +x /usr/local/bin/rabbitmq-migration.sh
-ENV DO_MIGRATE_QUEUES=1
 
 CMD ["rabbitmq-migration.sh"]
-
