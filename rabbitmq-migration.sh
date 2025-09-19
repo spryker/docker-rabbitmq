@@ -34,20 +34,24 @@ detect_existing_data() {
     if [ -d "$ORIGINAL_MNESIA" ]; then
         log "Found existing mnesia directory: $ORIGINAL_MNESIA"
 
-        # Look for existing node data
-        EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbit@' | head -n1 || true)
+        # DEBUG: Show what's actually in mnesia
+        log "DEBUG: Contents of mnesia directory:"
+        ls -la "$ORIGINAL_MNESIA" 2>/dev/null || log "Cannot list directory contents"
+
+        # Look for existing node data (both rabbit@ and rabbitmq@ patterns)
+        EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbitmq?@' | head -n1 || true)
 
         if [ -n "$EXISTING_NODE" ]; then
             log "✅ Found existing RabbitMQ node data: $EXISTING_NODE"
-            log "This appears to be an upgrade from RabbitMQ 3.13"
             return 0
         else
-            log "Mnesia directory exists but no node data found"
+            log "Mnesia directory exists but no rabbit@/rabbitmq@ node directories found"
+            log "This indicates either:"
+            log "  1. Fresh/empty volume"
+            log "  2. Hostname changed between deployments"
+            log "  3. Previous data was cleared"
             return 1
         fi
-    else
-        log "No existing mnesia directory - this is a fresh installation"
-        return 1
     fi
 }
 
@@ -182,15 +186,10 @@ configure_rabbitmq_environment() {
         export RABBITMQ_NODENAME="$EXISTING_NODE"
         local host_part="${EXISTING_NODE#rabbit@}"
 
-        # Ensure hostname resolution
-        if ! grep -q "$host_part" /etc/hosts; then
-            echo "127.0.0.1 $host_part" >> /etc/hosts
-            log "Added hostname resolution for: $host_part"
-        fi
 
         log "Using existing node name: $RABBITMQ_NODENAME"
     else
-        export RABBITMQ_NODENAME="rabbit@localhost"
+        export RABBITMQ_NODENAME="rabbit@$(hostname)"
         log "Using default node name: $RABBITMQ_NODENAME"
     fi
 
@@ -443,31 +442,74 @@ enable_rabbitmq_41_features() {
 
     # Get current feature flags status
     local available_features
-    available_features=$(rabbitmqctl list_feature_flags --quiet | cut -f1) || {
+    available_features=$(timeout 30 rabbitmqctl list_feature_flags --quiet | cut -f1) || {
         log "⚠️ Could not list available feature flags"
         return 1
     }
 
-    for feature in "${safe_features[@]}"; do
+    # Enable all stable feature flags at once (recommended after upgrade)
+    log "Enabling all stable feature flags..."
+    timeout 60 rabbitmqctl enable_feature_flag all || {
+        log "⚠️ Could not enable all feature flags, trying individual approach..."
+
+        # Fallback to individual feature flag enabling
+        for feature in "${safe_features[@]}"; do
+            if echo "$available_features" | grep -q "^${feature}$"; then
+                log "Enabling feature flag: $feature"
+                timeout 30 rabbitmqctl enable_feature_flag "$feature" || {
+                    log "⚠️ Could not enable feature flag $feature, but continuing..."
+                }
+            else
+                log "Feature flag $feature not available in this version"
+            fi
+        done
+    }
+
+    # Enable additional feature flags to replace deprecated features
+    local deprecated_replacement_features=(
+        "classic_queue_type_delivery_support"
+        "message_containers"
+        "direct_exchange_routing_v2"
+        "amqp_address_v1"
+        "feature_flags_v2"
+        "message_containers_deaths_v2"
+        "detailed_queues_endpoint"
+        "rabbitmq_4.0.0"
+        "rabbitmq_4.1.0"
+    )
+
+    log "Enabling feature flags to replace deprecated features..."
+    for feature in "${deprecated_replacement_features[@]}"; do
         if echo "$available_features" | grep -q "^${feature}$"; then
-            log "Enabling feature flag: $feature"
-            rabbitmqctl enable_feature_flag "$feature" || {
+            log "Enabling replacement feature flag: $feature"
+            timeout 30 rabbitmqctl enable_feature_flag "$feature" || {
                 log "⚠️ Could not enable feature flag $feature, but continuing..."
             }
         else
-            log "Feature flag $feature not available in this version"
+            log "Replacement feature flag $feature not available in this version"
         fi
     done
 
-    # Skip problematic feature flags that might cause message loss
-    local skip_features=(
-        "classic_mirrored_queue_version"  # Can affect message storage format
-        "tracking_records_in_ets"         # Can cause instability
-        "restart_streams"                 # Can affect stream queues
-    )
+    # Check and remove deprecated mirroring policies
+    log "Checking for deprecated mirroring policies..."
+    local policies
+    policies=$(timeout 30 rabbitmqctl list_policies --quiet 2>/dev/null) || {
+        log "⚠️ Could not list policies"
+    }
 
-    log "⚠️ Skipping potentially dangerous feature flags: ${skip_features[*]}"
-    log "✅ RabbitMQ 4.1 feature flags configuration complete (safe mode)"
+    if [ -n "$policies" ]; then
+        echo "$policies" | while IFS=$'\t' read -r vhost name pattern definition priority; do
+            if [[ "$definition" == *"ha-mode"* ]] || [[ "$definition" == *"ha-sync-mode"* ]]; then
+                log "⚠️ Found deprecated mirroring policy: $name in vhost $vhost"
+                log "Removing deprecated policy: $name"
+                timeout 30 rabbitmqctl clear_policy -p "$vhost" "$name" || {
+                    log "⚠️ Could not remove policy $name"
+                }
+            fi
+        done
+    fi
+
+    log "✅ RabbitMQ 4.1 feature flags configuration complete"
 }
 
 # =============================================================================
@@ -477,17 +519,26 @@ enable_rabbitmq_41_features() {
 setup_spryker_environment() {
     log "=== Setting up Spryker environment ==="
 
-    # Create required vhosts for Spryker
-    local required_vhosts=("eu-docker" "us-docker")
+    # Get vhosts from environment or use defaults
+    local required_vhosts
+    if [ -n "${SPRYKER_BROKER_CONNECTIONS:-}" ]; then
+        # Extract vhosts from SPRYKER_BROKER_CONNECTIONS JSON
+        required_vhosts=$(echo "$SPRYKER_BROKER_CONNECTIONS" | jq -r '.[].RABBITMQ_VIRTUAL_HOST' 2>/dev/null || echo "eu-docker us-docker")
+    else
+        required_vhosts="eu-docker us-docker"
+    fi
 
-    for vhost in "${required_vhosts[@]}"; do
-        if ! rabbitmqctl list_vhosts | grep -q "^${vhost}$"; then
+    # Get RabbitMQ user from environment or use default
+    local rabbitmq_user="${RABBITMQ_DEFAULT_USER:-spryker}"
+
+    for vhost in $required_vhosts; do
+        if ! timeout 30 rabbitmqctl list_vhosts | grep -q "^${vhost}$"; then
             log "Creating missing vhost: ${vhost}"
-            rabbitmqctl add_vhost "$vhost"
+            timeout 30 rabbitmqctl add_vhost "$vhost"
 
-            # Set permissions for spryker user on new vhost
-            rabbitmqctl set_permissions -p "$vhost" spryker ".*" ".*" ".*"
-            log "✅ Created vhost '${vhost}' with spryker permissions"
+            # Set permissions for configured user on new vhost
+            timeout 30 rabbitmqctl set_permissions -p "$vhost" "$rabbitmq_user" ".*" ".*" ".*"
+            log "✅ Created vhost '${vhost}' with ${rabbitmq_user} permissions"
         else
             log "Vhost '${vhost}' already exists"
         fi

@@ -1,6 +1,6 @@
 FROM rabbitmq:4.1-management-alpine
 
-RUN apk add --no-cache jq curl python3
+RUN apk add --no-cache jq curl
 
 RUN rabbitmq-plugins enable --offline rabbitmq_management \
     && rabbitmq-plugins enable --offline rabbitmq_management_agent \
