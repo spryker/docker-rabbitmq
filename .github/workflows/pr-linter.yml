@@ -1,0 +1,37 @@
+name: PR Linter
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  check-pr-body:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for required PR body content
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+
+          # Check 1: 'Version release notes' section must exist and be non-empty.
+          if ! echo "$PR_BODY" | grep -q "### Version release notes"; then
+            echo "Error: '### Version release notes' section is missing in the PR body."
+            exit 1
+          fi
+          
+          # Extract content between 'Version release notes' and 'Improvements', then remove whitespace.
+          VERSION_NOTES_CONTENT=$(echo "$PR_BODY" | awk '/### Version release notes/{flag=1;next}/### Improvements/{flag=0}flag' | xargs)
+          
+          if [ -z "$VERSION_NOTES_CONTENT" ]; then
+            echo "Error: The '### Version release notes' section cannot be empty. Please include the official release notes."
+            exit 1
+          fi
+          echo "✅ 'Version release notes' section contains content."
+
+          # Check 2: 'Improvements' section must exist.
+          if ! echo "$PR_BODY" | grep -q "### Improvements"; then
+            echo "Error: '### Improvements' section is missing in the PR body."
+            exit 1
+          fi
+          echo "✅ 'Improvements' section is present."
+          
+          echo "✅ PR body format is correct."
