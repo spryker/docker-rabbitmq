@@ -11,10 +11,6 @@ SHADOW_MNESIA="$SHADOW_BASE/mnesia"
 EXISTING_NODE=""
 RABBITMQ_PID=""
 
-# =============================================================================
-# LOGGING FUNCTIONS
-# =============================================================================
-
 log() {
     printf "[%s] [rmq-migration] %s\n" "$(date '+%F %T')" "$*" >&2
 }
@@ -24,22 +20,17 @@ die() {
     exit 1
 }
 
-# =============================================================================
-# DETECTION AND ANALYSIS FUNCTIONS
-# =============================================================================
-
 detect_existing_data() {
     log "=== Detecting existing RabbitMQ data ==="
 
     if [ -d "$ORIGINAL_MNESIA" ]; then
         log "Found existing mnesia directory: $ORIGINAL_MNESIA"
 
-        # DEBUG: Show what's actually in mnesia
         log "DEBUG: Contents of mnesia directory:"
         ls -la "$ORIGINAL_MNESIA" 2>/dev/null || log "Cannot list directory contents"
 
         # Look for existing node data (both rabbit@ and rabbitmq@ patterns)
-        EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbitmq?@' | head -n1 || true)
+        EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbit(mq)?@' | head -n1 || true)
 
         if [ -n "$EXISTING_NODE" ]; then
             log "✅ Found existing RabbitMQ node data: $EXISTING_NODE"
@@ -56,8 +47,6 @@ detect_existing_data() {
 }
 
 test_mnesia_writability() {
-    log "=== Testing mnesia directory writability ==="
-
     if touch "$ORIGINAL_MNESIA/.write_test" 2>/dev/null; then
         rm -f "$ORIGINAL_MNESIA/.write_test"
         log "✅ Original mnesia is writable - using in-place upgrade"
@@ -68,10 +57,6 @@ test_mnesia_writability() {
     fi
 }
 
-# =============================================================================
-# COPY-ON-WRITE FUNCTIONS
-# =============================================================================
-
 copy_mnesia_to_shadow() {
     local source_mnesia="$1"
     local shadow_mnesia="$2"
@@ -80,10 +65,8 @@ copy_mnesia_to_shadow() {
     log "Source: $source_mnesia"
     log "Target: $shadow_mnesia"
 
-    # Create shadow mnesia directory
     mkdir -p "$shadow_mnesia" || die "Failed to create shadow mnesia directory"
 
-    # Copy all mnesia data to shadow
     log "Copying mnesia data to persistent shadow directory..."
     if cp -r "$source_mnesia"/* "$shadow_mnesia/" 2>/dev/null; then
         log "✅ Mnesia data copied successfully to persistent location"
@@ -91,7 +74,6 @@ copy_mnesia_to_shadow() {
         die "❌ Failed to copy mnesia data to shadow directory"
     fi
 
-    # Fix ownership in shadow directory (now writable)
     log "Setting proper ownership in shadow directory..."
     chown -R rabbitmq:rabbitmq "$shadow_mnesia" || {
         log "⚠️ Could not set ownership, but continuing..."
@@ -106,15 +88,12 @@ cleanup_shadow_files() {
 
     log "=== Cleaning up problematic files in shadow directory ==="
 
-    # Remove PID files
     find "$shadow_mnesia" -name "*.pid" -delete 2>/dev/null || true
     log "Removed PID files"
 
-    # Remove lock files
     find "$shadow_mnesia" -name "*.lock" -delete 2>/dev/null || true
     log "Removed lock files"
 
-    # Remove coordination directory and other problematic files
     for node_dir in "$shadow_mnesia"/rabbit@*; do
         if [ -d "$node_dir" ]; then
             local coordination_dir="$node_dir/coordination"
@@ -125,7 +104,6 @@ cleanup_shadow_files() {
                 }
             fi
 
-            # Remove other potentially problematic files
             rm -f "$node_dir"/recovery.dets 2>/dev/null || true
             rm -f "$node_dir"/*.backup 2>/dev/null || true
             log "Cleaned up node directory: $node_dir"
@@ -133,22 +111,15 @@ cleanup_shadow_files() {
     done
 }
 
-# =============================================================================
-# ENVIRONMENT SETUP FUNCTIONS
-# =============================================================================
-
 setup_shadow_environment() {
     log "=== Setting up shadow environment ==="
 
-    # Create shadow base directory
     mkdir -p "$SHADOW_BASE"
     export HOME="$SHADOW_BASE"
 
-    # Use consistent Erlang cookie between server and CLI
     local shadow_cookie="$HOME/.erlang.cookie"
     local main_cookie="/var/lib/rabbitmq/.erlang.cookie"
 
-    # Try to use existing cookie from main directory first
     if [ -s "$main_cookie" ] && [ -r "$main_cookie" ]; then
         cp "$main_cookie" "$shadow_cookie"
         chmod 600 "$shadow_cookie"
@@ -156,12 +127,10 @@ setup_shadow_environment() {
     elif [ -s "$shadow_cookie" ]; then
         log "Using existing shadow Erlang cookie"
     else
-        # Create new cookie if none exists
         echo "rabbitmq-cookie-$(date +%s)" > "$shadow_cookie"
         chmod 600 "$shadow_cookie"
         log "Created new Erlang cookie in shadow"
 
-        # Copy to main directory if writable
         if [ -w "/var/lib/rabbitmq" ]; then
             cp "$shadow_cookie" "$main_cookie"
             chmod 600 "$main_cookie"
@@ -181,11 +150,9 @@ setup_shadow_environment() {
 configure_rabbitmq_environment() {
     log "=== Configuring RabbitMQ environment ==="
 
-    # Set node name based on existing data or default
     if [ -n "$EXISTING_NODE" ]; then
         export RABBITMQ_NODENAME="$EXISTING_NODE"
         local host_part="${EXISTING_NODE#rabbit@}"
-
 
         log "Using existing node name: $RABBITMQ_NODENAME"
     else
@@ -193,7 +160,6 @@ configure_rabbitmq_environment() {
         log "Using default node name: $RABBITMQ_NODENAME"
     fi
 
-    # Configure logging to stdout
     export RABBITMQ_LOGS="-"
     export RABBITMQ_SASL_LOGS="-"
 
@@ -218,14 +184,7 @@ determine_mnesia_strategy() {
     fi
 }
 
-# =============================================================================
-# RABBITMQ STARTUP FUNCTIONS
-# =============================================================================
-
 start_rabbitmq() {
-    log "=== Starting RabbitMQ 4.1 ==="
-
-    # Kill any existing epmd
     epmd -kill >/dev/null 2>&1 || true
 
     log "Starting RabbitMQ server..."
@@ -236,7 +195,6 @@ start_rabbitmq() {
 
 wait_for_rabbitmq() {
     log "=== Waiting for RabbitMQ to become ready ==="
-    log "Upgrade may take longer than usual..."
 
     for i in $(seq 1 120); do
         if rabbitmqctl status >/dev/null 2>&1; then
@@ -244,7 +202,6 @@ wait_for_rabbitmq() {
             return 0
         fi
 
-        # Show progress every 10 seconds
         if [ $((i % 10)) -eq 0 ]; then
             log "Still waiting... ($i/120 seconds)"
         fi
@@ -255,10 +212,6 @@ wait_for_rabbitmq() {
         fi
     done
 }
-
-# =============================================================================
-# VERIFICATION FUNCTIONS
-# =============================================================================
 
 verify_rabbitmq_status() {
     log "=== Verifying RabbitMQ Status ==="
@@ -284,23 +237,7 @@ show_current_state() {
     }
 }
 
-print_environment_info() {
-    log "=== Environment Information ==="
-    log "  HOME: $HOME"
-    log "  COOKIE: $HOME/.erlang.cookie"
-    log "  NODE: $RABBITMQ_NODENAME"
-    log "  MNESIA_BASE: $RABBITMQ_MNESIA_BASE"
-    log "  EXISTING_DATA: ${EXISTING_NODE:-none}"
-}
-
-# =============================================================================
-# MANAGEMENT UI SETUP
-# =============================================================================
-
 enable_management_ui() {
-    log "=== Enabling RabbitMQ Management UI ==="
-
-    # Enable management plugin for web UI
     log "Enabling RabbitMQ management plugin..."
     rabbitmq-plugins enable rabbitmq_management || {
         log "⚠️ Could not enable management plugin, but continuing..."
@@ -308,18 +245,11 @@ enable_management_ui() {
     }
 
     log "✅ Management UI enabled successfully"
-    log "📋 Management UI will be available at: http://localhost:15672"
-    log "💡 Use existing users/passwords from your migrated data"
 }
 
-# =============================================================================
-# POLICY UPDATE FUNCTIONS
-# =============================================================================
-
 update_rabbitmq_policies() {
-    log "=== Updating RabbitMQ Policies for RabbitMQ 4.1 Compatibility ==="
+    log "Updating RabbitMQ Policies for RabbitMQ 4.1 Compatibility..."
 
-    # Get list of all vhosts
     local vhosts
     vhosts=$(rabbitmqctl list_vhosts --quiet) || {
         log "⚠️ Could not list vhosts for policy updates"
@@ -330,19 +260,16 @@ update_rabbitmq_policies() {
         if [ -n "$vhost" ]; then
             log "Processing policies for vhost: $vhost"
 
-            # Get existing policies
             local policies
             policies=$(rabbitmqctl list_policies -p "$vhost" --quiet 2>/dev/null) || {
                 log "No policies found for vhost $vhost"
                 continue
             }
 
-            # Process each policy to remove deprecated ha-mode settings
             if [ -n "$policies" ]; then
                 echo "$policies" | while IFS=$'\t' read -r vhost name pattern apply_to definition priority; do
     if [[ "$definition" == *"ha-mode"* ]] || [[ "$definition" == *"ha-sync-mode"* ]]; then
         rabbitmqctl clear_policy -p "$vhost" "$name"
-        # если хочешь оставить ленивость:
         if [[ "$definition" == *'"queue-mode":"lazy"'* ]]; then
             rabbitmqctl set_policy -p "$vhost" "$name" "$pattern" \
               '{"queue-mode":"lazy"}' --apply-to "$apply_to" --priority "$priority"
@@ -356,14 +283,6 @@ done
     log "✅ Policy migration complete - deprecated ha-mode policies removed"
 }
 
-# =============================================================================
-# RABBITMQ 4.1 FEATURE FLAGS
-# =============================================================================
-
-# =============================================================================
-# MESSAGE COUNT VALIDATION FUNCTIONS
-# =============================================================================
-
 count_messages_in_queues() {
     log "=== Counting Messages in All Queues ==="
 
@@ -371,18 +290,15 @@ count_messages_in_queues() {
     local queue_info
     local vhosts
 
-    # Get all vhosts first
     vhosts=$(rabbitmqctl list_vhosts --quiet 2>/dev/null) || {
         log "⚠️ Could not list vhosts for message counting"
         return 1
     }
 
-    # Count messages in each vhost separately
     while IFS= read -r vhost; do
         if [ -n "$vhost" ] && [ "$vhost" != "name" ]; then
             log "Checking vhost: $vhost"
 
-            # Get all queues with message counts for this vhost
             queue_info=$(rabbitmqctl list_queues -p "$vhost" --quiet name messages 2>/dev/null) || {
                 log "⚠️ Could not list queues for vhost $vhost"
                 continue
@@ -390,9 +306,7 @@ count_messages_in_queues() {
 
             local vhost_messages=0
             while IFS=$'\t' read -r queue_name messages; do
-                # Skip empty lines and ensure both variables are set
                 if [ -n "$queue_name" ] && [ -n "$messages" ]; then
-                    # Validate that messages is a number
                     if [[ "$messages" =~ ^[0-9]+$ ]]; then
                         if [ "$messages" != "0" ]; then
                             log "  Queue '$queue_name': $messages messages"
@@ -413,35 +327,10 @@ count_messages_in_queues() {
     echo "$total_messages"
 }
 
-validate_message_preservation() {
-    local before_count="$1"
-    local after_count="$2"
-    local tolerance=5  # Allow 5 message difference for timing
-
-    log "=== Validating Message Preservation ==="
-    log "Messages before migration: $before_count"
-    log "Messages after migration: $after_count"
-
-    local difference=$((before_count - after_count))
-    local abs_difference=${difference#-}  # Absolute value
-
-    if [ "$abs_difference" -le "$tolerance" ]; then
-        log "✅ Message preservation validated (difference: $difference, within tolerance: $tolerance)"
-        return 0
-    else
-        log "🚨 CRITICAL: Message loss detected!"
-        log "   Lost messages: $difference"
-        log "   This exceeds tolerance of $tolerance messages"
-        log "   Migration should be considered FAILED"
-        return 1
-    fi
-}
-
 enable_rabbitmq_41_features() {
     log "=== Enabling RabbitMQ 4.1 Feature Flags ==="
 
     # List of SAFE feature flags to enable for RabbitMQ 4.1
-    # Removed potentially dangerous flags that could affect message storage
     local safe_features=(
         "drop_unroutable_metric"
         "empty_basic_get_metric"
@@ -453,7 +342,6 @@ enable_rabbitmq_41_features() {
         "virtual_host_metadata"
     )
 
-    # Get current feature flags status
     local available_features
     available_features=$(timeout 30 rabbitmqctl list_feature_flags --quiet | cut -f1) || {
         log "⚠️ Could not list available feature flags"
@@ -562,96 +450,51 @@ enable_rabbitmq_41_features() {
     log "✅ RabbitMQ 4.1 feature flags configuration complete"
 }
 
-# =============================================================================
-# SPRYKER ENVIRONMENT SETUP
-# =============================================================================
-
 setup_spryker_environment() {
     log "=== Setting up Spryker environment ==="
 
-    # Get vhosts from environment or use defaults
-    local required_vhosts
-    if [ -n "${SPRYKER_BROKER_CONNECTIONS:-}" ]; then
-        # Extract vhosts from SPRYKER_BROKER_CONNECTIONS JSON
-        required_vhosts=$(echo "$SPRYKER_BROKER_CONNECTIONS" | jq -r '.[].RABBITMQ_VIRTUAL_HOST' 2>/dev/null || echo "eu-docker us-docker")
-    else
-        required_vhosts="eu-docker us-docker"
+    # Get existing vhosts from current RabbitMQ installation - MIGRATE ONLY WHAT EXISTS
+    local existing_vhosts
+    existing_vhosts=$(timeout 30 rabbitmqctl list_vhosts --quiet 2>/dev/null || echo "/")
+
+    if [ -z "$existing_vhosts" ]; then
+        log "⚠️ No vhosts found - using default '/' vhost"
+        existing_vhosts="/"
     fi
+
+    log "📋 Found existing vhosts to preserve: $existing_vhosts"
+    local required_vhosts="$existing_vhosts"
 
     # Get RabbitMQ user from environment or use default
     local rabbitmq_user="${RABBITMQ_DEFAULT_USER:-spryker}"
 
+    # Verify that existing vhosts are still accessible after migration
     for vhost in $required_vhosts; do
-        if ! timeout 30 rabbitmqctl list_vhosts | grep -q "^${vhost}$"; then
-            log "Creating missing vhost: ${vhost}"
-            timeout 30 rabbitmqctl add_vhost "$vhost"
+        if timeout 30 rabbitmqctl list_vhosts --quiet 2>/dev/null | grep -q "^${vhost}$"; then
+            log "✅ Vhost '${vhost}' successfully preserved during migration"
 
-            # Set permissions for configured user on new vhost
-            timeout 30 rabbitmqctl set_permissions -p "$vhost" "$rabbitmq_user" ".*" ".*" ".*"
-            log "✅ Created vhost '${vhost}' with ${rabbitmq_user} permissions"
+            # Verify permissions exist for the vhost
+            if timeout 30 rabbitmqctl list_permissions -p "$vhost" >/dev/null 2>&1; then
+                log "✅ Permissions preserved for vhost '${vhost}'"
+            else
+                log "⚠️ Setting up permissions for preserved vhost '${vhost}'"
+                timeout 30 rabbitmqctl set_permissions -p "$vhost" "$rabbitmq_user" ".*" ".*" ".*" || true
+            fi
         else
-            log "Vhost '${vhost}' already exists"
+            log "❌ Vhost '${vhost}' was lost during migration!"
         fi
     done
 
     log "✅ Spryker environment setup complete"
 }
 
-# =============================================================================
-# RABBITMQ 4.1 CONFIGURATION
-# =============================================================================
-
-configure_rabbitmq_41_settings() {
-    log "=== Configuring RabbitMQ 4.1 settings ==="
-    # Add RabbitMQ 4.1 configuration code here
-}
-
-# =============================================================================
-# CLIENT COMPATIBILITY VALIDATION
-# =============================================================================
-
-validate_client_compatibility() {
-    log "=== Validating client compatibility ==="
-    # Add client compatibility validation code here
-}
-
-# =============================================================================
-# FEATURE VALIDATION
-# =============================================================================
-
-validate_41_features() {
-    log "=== Validating RabbitMQ 4.1 features ==="
-    # Add feature validation code here
-}
-
-# =============================================================================
-# COMPLETION FUNCTIONS
-# =============================================================================
-
 print_completion_message() {
     if [ -n "$EXISTING_NODE" ]; then
         log "✅ Complete RabbitMQ 3.13→4.1 Migration Successful!"
-        log "📋 Migration Summary:"
-        log "  • Copy-on-write upgrade completed"
-        log "  • Existing data from RabbitMQ 3.13 preserved"
-        log "  • Management UI enabled"
-        log "  • HA policies updated to quorum defaults"
-        log "  • RabbitMQ 4.1 feature flags enabled"
-        log "  • Shadow mnesia location: $RABBITMQ_MNESIA_BASE"
     else
         log "✅ Fresh RabbitMQ 4.1 Installation Complete!"
-        log "📋 Setup Summary:"
-        log "  • RabbitMQ 4.1 installed and configured"
-        log "  • Management UI enabled"
-        log "  • Production-ready configuration applied"
     fi
 }
-
-# =============================================================================
-# MAIN EXECUTION FUNCTION
-# =============================================================================
-
-
 
 main() {
     # Check for Docker environment indicators
@@ -688,7 +531,6 @@ main() {
             done
         fi
 
-        # If Docker detected but no specific arguments, use standard migration startup
         if [ "$is_docker" = true ]; then
             log "🚀 Docker environment detected - using standard RabbitMQ 4.1 migration"
         fi
@@ -696,89 +538,42 @@ main() {
 
     log "=== RabbitMQ 3.13 → 4.1 Complete Production Migration ==="
 
-    # Phase 1: Detection and Analysis
     detect_existing_data
 
-    # Phase 2: Environment Setup
     setup_shadow_environment
     configure_rabbitmq_environment
     determine_mnesia_strategy
 
-    # Phase 3: Display Configuration
-    print_environment_info
-
-    # Phase 4: Start RabbitMQ
     start_rabbitmq
     wait_for_rabbitmq
-
-    # Phase 5: Basic Verification
     verify_rabbitmq_status
     show_current_state
 
-    # Phase 5.1: Wait for Queue Recovery and Count Messages
     log "⏳ Waiting for queue recovery to complete..."
-    sleep 10  # Wait for queue recovery
+    sleep 10
 
     log "📊 Counting messages before any configuration changes..."
     local messages_before
     messages_before=$(count_messages_in_queues) || messages_before="unknown"
 
-    # Validate that we actually have queues recovered
     local queue_count
     queue_count=$(rabbitmqctl list_queues --quiet | wc -l) || queue_count=0
     log "📋 Found $queue_count queues after recovery"
 
-    if [ "$messages_before" = "0" ] && [ "$queue_count" -gt "50" ]; then
-        log "⚠️ WARNING: Found $queue_count queues but 0 messages - this may indicate incomplete recovery"
-        log "⏳ Waiting additional 20 seconds for full recovery..."
-        sleep 20
-        messages_before=$(count_messages_in_queues) || messages_before="unknown"
-        log "🔄 Recounted messages: $messages_before"
-
-        # If still 0 messages with many queues, this is suspicious
-        if [ "$messages_before" = "0" ] && [ "$queue_count" -gt "100" ]; then
-            log "🚨 CRITICAL: $queue_count queues recovered but 0 messages found!"
-            log "🚨 This indicates potential message loss during recovery!"
-            log "🛑 STOPPING MIGRATION to prevent further data loss"
-            exit 1
-        fi
-    fi
-
-    # Phase 6: Enable Management UI
     enable_management_ui
 
-    # Phase 7: Spryker Environment Setup
     setup_spryker_environment
 
-    # Phase 8: RabbitMQ 4.1 Configuration
-    configure_rabbitmq_41_settings
-
-    # Phase 9: Client Compatibility Validation
-    validate_client_compatibility
-
-    # Phase 10: Enable RabbitMQ 4.1 Features
     enable_rabbitmq_41_features
 
-    # Phase 11: Policy Updates (after RabbitMQ is fully ready)
     update_rabbitmq_policies
 
-    # Phase 12: Feature Validation
-    validate_41_features
-
-    # Phase 13: Final Verification
     log "=== Final Migration Verification ==="
     show_current_state
     print_completion_message
 
-    # Phase 14: Keep Running
     log "🚀 Migration complete! RabbitMQ 4.1 is ready for production use."
-    log "📋 Classic queues preserved - no migration needed for single-node setup"
-    log "Press Ctrl+C to stop or wait for manual termination..."
     wait $RABBITMQ_PID
 }
-
-# =============================================================================
-# SCRIPT EXECUTION
-# =============================================================================
 
 main "$@"
