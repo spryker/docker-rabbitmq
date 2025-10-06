@@ -147,41 +147,43 @@ setup_shadow_environment() {
     log "✅ Shadow environment ready with synchronized cookie"
 }
 
-configure_rabbitmq_environment() {
-    log "=== Configuring RabbitMQ environment ==="
-
-    if [ -n "$EXISTING_NODE" ]; then
-        export RABBITMQ_NODENAME="$EXISTING_NODE"
-        local host_part="${EXISTING_NODE#rabbit@}"
-
-        log "Using existing node name: $RABBITMQ_NODENAME"
-    else
-        export RABBITMQ_NODENAME="rabbit@$(hostname)"
-        log "Using default node name: $RABBITMQ_NODENAME"
-    fi
-
-    export RABBITMQ_LOGS="-"
-    export RABBITMQ_SASL_LOGS="-"
-
-    log "✅ RabbitMQ environment configured"
-}
-
 determine_mnesia_strategy() {
     log "=== Determining mnesia strategy ==="
 
-    if [ -n "$EXISTING_NODE" ] && test_mnesia_writability; then
-        export RABBITMQ_MNESIA_BASE="$ORIGINAL_MNESIA"
-        log "Strategy: In-place upgrade (writable mnesia)"
-    else
-        if [ -n "$EXISTING_NODE" ]; then
-            copy_mnesia_to_shadow "$ORIGINAL_MNESIA" "$SHADOW_MNESIA"
-        else
-            mkdir -p "$SHADOW_MNESIA"
-            log "Created fresh shadow mnesia directory in persistent location"
-        fi
-        export RABBITMQ_MNESIA_BASE="$SHADOW_MNESIA"
-        log "Strategy: Copy-on-write (persistent shadow mnesia)"
+    if [ -d "$SHADOW_MNESIA" ]; then
+        log "Removing old shadow directory from previous migration..."
+        rm -rf "$SHADOW_MNESIA" 2>/dev/null || true
     fi
+
+    if [ -n "$EXISTING_NODE" ]; then
+        log "Strategy: Use shadow as temporary backup, then migrate in original"
+
+        log "Step 1: Backing up original → shadow"
+        copy_mnesia_to_shadow "$ORIGINAL_MNESIA" "$SHADOW_MNESIA"
+
+        log "Step 2: Removing original to prepare for migration"
+        local backup_path="${ORIGINAL_MNESIA}.pre-migration"
+        mv "$ORIGINAL_MNESIA" "$backup_path" 2>/dev/null || {
+            log "⚠️ Could not backup, removing original"
+            rm -rf "$ORIGINAL_MNESIA" 2>/dev/null || true
+        }
+
+        log "Step 3: Creating working copy: shadow → original"
+        cp -r "$SHADOW_MNESIA" "$ORIGINAL_MNESIA" || {
+            die "❌ Failed to create working copy!"
+        }
+        chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
+
+        log "✅ Migration will happen directly in original (shadow preserved as backup)"
+    else
+        log "Strategy: Fresh installation in original"
+        mkdir -p "$ORIGINAL_MNESIA"
+    fi
+
+    # DON'T set RABBITMQ_MNESIA_BASE - let it use default /var/lib/rabbitmq/mnesia
+    export USING_SHADOW=false
+
+    log "✅ RabbitMQ will use: $ORIGINAL_MNESIA"
 }
 
 start_rabbitmq() {
@@ -488,6 +490,44 @@ setup_spryker_environment() {
     log "✅ Spryker environment setup complete"
 }
 
+sync_shadow_to_original() {
+    log "=== Syncing migrated data from shadow to original ==="
+
+    if [ "$USING_SHADOW" != "true" ]; then
+        log "Not using shadow, skipping sync"
+        return 0
+    fi
+
+    if [ ! -d "$SHADOW_MNESIA" ]; then
+        log "⚠️ Shadow directory doesn't exist, skipping sync"
+        return 0
+    fi
+
+    log "📁 Shadow is no longer in use, safe to copy without stopping RabbitMQ"
+
+    log "Backing up original mnesia..."
+    if [ -d "$ORIGINAL_MNESIA" ]; then
+        local backup_path="${ORIGINAL_MNESIA}.pre-migration"
+        mv "$ORIGINAL_MNESIA" "$backup_path" 2>/dev/null || {
+            log "⚠️ Could not backup original, trying to remove"
+            rm -rf "$ORIGINAL_MNESIA" 2>/dev/null || true
+        }
+        log "✅ Original backed up to: $backup_path"
+    fi
+
+    log "Copying shadow → original..."
+    mkdir -p "$(dirname "$ORIGINAL_MNESIA")"
+    cp -r "$SHADOW_MNESIA" "$ORIGINAL_MNESIA" || {
+        log "❌ Failed to copy shadow to original!"
+        return 1
+    }
+
+    log "Setting proper ownership..."
+    chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
+
+    log "✅ Shadow successfully synced to original"
+}
+
 print_completion_message() {
     if [ -n "$EXISTING_NODE" ]; then
         log "✅ Complete RabbitMQ 3.13→4.1 Migration Successful!"
@@ -536,12 +576,9 @@ main() {
         fi
     fi
 
-    log "=== RabbitMQ 3.13 → 4.1 Complete Production Migration ==="
-
     detect_existing_data
 
     setup_shadow_environment
-    configure_rabbitmq_environment
     determine_mnesia_strategy
 
     start_rabbitmq
@@ -568,12 +605,13 @@ main() {
 
     update_rabbitmq_policies
 
-    log "=== Final Migration Verification ==="
     show_current_state
+
     print_completion_message
 
     log "🚀 Migration complete! RabbitMQ 4.1 is ready for production use."
-    wait $RABBITMQ_PID
+    log "📁 Data location: $ORIGINAL_MNESIA"
+    log "💾 Backup preserved at: $SHADOW_MNESIA"
 }
 
 main "$@"
