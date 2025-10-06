@@ -150,7 +150,6 @@ setup_shadow_environment() {
 determine_mnesia_strategy() {
     log "=== Determining mnesia strategy ==="
 
-    # Clean up old shadow from previous runs
     if [ -d "$SHADOW_MNESIA" ]; then
         log "Removing old shadow directory from previous migration..."
         rm -rf "$SHADOW_MNESIA" 2>/dev/null || true
@@ -159,19 +158,16 @@ determine_mnesia_strategy() {
     if [ -n "$EXISTING_NODE" ]; then
         log "Strategy: Use shadow as temporary backup, then migrate in original"
 
-        # Step 1: Backup original → shadow
         log "Step 1: Backing up original → shadow"
         copy_mnesia_to_shadow "$ORIGINAL_MNESIA" "$SHADOW_MNESIA"
 
-        # Step 2: Remove original
         log "Step 2: Removing original to prepare for migration"
-        local backup_path="${ORIGINAL_MNESIA}.pre-migration-$(date +%Y%m%d-%H%M%S)"
+        local backup_path="${ORIGINAL_MNESIA}.pre-migration"
         mv "$ORIGINAL_MNESIA" "$backup_path" 2>/dev/null || {
             log "⚠️ Could not backup, removing original"
             rm -rf "$ORIGINAL_MNESIA" 2>/dev/null || true
         }
 
-        # Step 3: Copy shadow → original (create working copy)
         log "Step 3: Creating working copy: shadow → original"
         cp -r "$SHADOW_MNESIA" "$ORIGINAL_MNESIA" || {
             die "❌ Failed to create working copy!"
@@ -530,8 +526,6 @@ sync_shadow_to_original() {
     chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
 
     log "✅ Shadow successfully synced to original"
-    log "📁 Original mnesia now at: $ORIGINAL_MNESIA"
-    log "🔄 Next RabbitMQ restart will use migrated data from original location"
 }
 
 print_completion_message() {
