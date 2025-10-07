@@ -520,8 +520,6 @@ sync_shadow_to_original() {
     chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
 
     log "✅ Shadow successfully synced to original"
-    log "📁 Original mnesia now at: $ORIGINAL_MNESIA"
-    log "🔄 Next RabbitMQ restart will use migrated data from original location"
 }
 
 print_completion_message() {
@@ -606,6 +604,8 @@ main() {
     print_completion_message
 
     log "🚀 Migration complete! RabbitMQ 4.1 is ready for production use."
+    log "📁 Data location: $ORIGINAL_MNESIA"
+    log "💾 Backup preserved at: $SHADOW_MNESIA"
 }
 
 main "$@"
