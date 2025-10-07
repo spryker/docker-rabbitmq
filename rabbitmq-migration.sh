@@ -606,8 +606,6 @@ main() {
     print_completion_message
 
     log "🚀 Migration complete! RabbitMQ 4.1 is ready for production use."
-    log "📁 Data location: $ORIGINAL_MNESIA"
-    log "💾 Backup preserved at: $SHADOW_MNESIA"
 }
 
 main "$@"
