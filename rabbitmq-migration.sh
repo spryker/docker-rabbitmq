@@ -96,17 +96,10 @@ cleanup_shadow_files() {
 
     for node_dir in "$shadow_mnesia"/rabbit@*; do
         if [ -d "$node_dir" ]; then
-            local coordination_dir="$node_dir/coordination"
-            if [ -d "$coordination_dir" ]; then
-                log "Removing problematic coordination directory: $coordination_dir"
-                rm -rf "$coordination_dir" 2>/dev/null || {
-                    log "⚠️ Could not remove coordination directory"
-                }
-            fi
-
+            # Only remove temporary/lock files
             rm -f "$node_dir"/recovery.dets 2>/dev/null || true
             rm -f "$node_dir"/*.backup 2>/dev/null || true
-            log "Cleaned up node directory: $node_dir"
+            log "Cleaned up temporary files in: $node_dir"
         fi
     done
 }
@@ -180,7 +173,8 @@ determine_mnesia_strategy() {
         mkdir -p "$ORIGINAL_MNESIA"
     fi
 
-    # DON'T set RABBITMQ_MNESIA_BASE - let it use default /var/lib/rabbitmq/mnesia
+    # Ensure RabbitMQ uses the original mnesia directory
+    export RABBITMQ_MNESIA_BASE="/var/lib/rabbitmq/mnesia"
     export USING_SHADOW=false
 
     log "✅ RabbitMQ will use: $ORIGINAL_MNESIA"
