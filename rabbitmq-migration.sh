@@ -21,7 +21,6 @@ die() {
 }
 
 detect_existing_data() {
-    log "✅ YOU ARE HERE 2 !!!"
     log "=== Detecting existing RabbitMQ data ==="
 
     if [ -d "$ORIGINAL_MNESIA" ]; then
@@ -69,9 +68,6 @@ copy_mnesia_to_shadow() {
         die "❌ Failed to copy mnesia data to shadow directory"
     fi
 
-    log "Shadow directory prepared (preserving original ownership)"
-
-    # Fix nested mnesia/mnesia/ structure if it exists (from previous buggy migrations)
     if [ -d "$shadow_mnesia/mnesia" ]; then
         log "⚠️ Found nested mnesia/mnesia/ structure - fixing..."
         local temp_dir="$shadow_mnesia/../mnesia-temp-$$"
@@ -128,7 +124,6 @@ cleanup_shadow_files() {
 determine_mnesia_strategy() {
     log "=== Determining mnesia strategy ==="
 
-    # Clean up old shadow from previous runs
     if [ -d "$SHADOW_MNESIA" ]; then
         log "Removing old shadow directory from previous migration..."
         rm -rf "$SHADOW_MNESIA" 2>/dev/null || true
@@ -137,19 +132,16 @@ determine_mnesia_strategy() {
     if [ -n "$EXISTING_NODE" ]; then
         log "Strategy: Use shadow as temporary backup, then migrate in original"
 
-        # Step 1: Backup original → shadow
         log "Step 1: Backing up original → shadow"
         copy_mnesia_to_shadow "$ORIGINAL_MNESIA" "$SHADOW_MNESIA"
 
-        # Step 2: Remove original
         log "Step 2: Removing original to prepare for migration"
-        local backup_path="${ORIGINAL_MNESIA}.pre-migration-$(date +%Y%m%d-%H%M%S)"
+        local backup_path="${ORIGINAL_MNESIA}.pre-migration"
         mv "$ORIGINAL_MNESIA" "$backup_path" 2>/dev/null || {
             log "⚠️ Could not backup, removing original"
             rm -rf "$ORIGINAL_MNESIA" 2>/dev/null || true
         }
 
-        # Step 3: Copy shadow → original (create working copy)
         log "Step 3: Creating working copy: shadow → original"
         mkdir -p "$ORIGINAL_MNESIA"
         cp -r "$SHADOW_MNESIA"/* "$ORIGINAL_MNESIA/" || {
@@ -163,12 +155,10 @@ determine_mnesia_strategy() {
     fi
 
     # Ensure RabbitMQ uses the original mnesia directory
-    # We must explicitly set RABBITMQ_MNESIA_BASE because HOME is set to shadow
     export RABBITMQ_MNESIA_BASE="/var/lib/rabbitmq/mnesia"
     export USING_SHADOW=false
 
     log "✅ RabbitMQ will use: $ORIGINAL_MNESIA"
-    log "📁 RABBITMQ_MNESIA_BASE explicitly set to: $RABBITMQ_MNESIA_BASE"
 }
 
 start_rabbitmq() {
@@ -507,11 +497,7 @@ sync_shadow_to_original() {
         return 1
     }
 
-    log "Data copied (preserving original ownership)"
-
     log "✅ Shadow successfully synced to original"
-    log "📁 Original mnesia now at: $ORIGINAL_MNESIA"
-    log "🔄 Next RabbitMQ restart will use migrated data from original location"
 }
 
 print_completion_message() {
