@@ -24,12 +24,6 @@ detect_existing_data() {
     log "=== Detecting existing RabbitMQ data ==="
 
     if [ -d "$ORIGINAL_MNESIA" ]; then
-        log "Found existing mnesia directory: $ORIGINAL_MNESIA"
-
-        log "DEBUG: Contents of mnesia directory:"
-        ls -la "$ORIGINAL_MNESIA" 2>/dev/null || log "Cannot list directory contents"
-
-        # Look for existing node data (both rabbit@ and rabbitmq@ patterns)
         EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbit(mq)?@' | head -n1 || true)
 
         if [ -n "$EXISTING_NODE" ]; then
@@ -74,10 +68,15 @@ copy_mnesia_to_shadow() {
         die "❌ Failed to copy mnesia data to shadow directory"
     fi
 
-    log "Setting proper ownership in shadow directory..."
-    chown -R rabbitmq:rabbitmq "$shadow_mnesia" || {
-        log "⚠️ Could not set ownership, but continuing..."
-    }
+    if [ -d "$shadow_mnesia/mnesia" ]; then
+        log "⚠️ Found nested mnesia/mnesia/ structure - fixing..."
+        local temp_dir="$shadow_mnesia/../mnesia-temp-$$"
+        mv "$shadow_mnesia/mnesia" "$temp_dir"
+        rm -rf "$shadow_mnesia"/*
+        mv "$temp_dir"/* "$shadow_mnesia/"
+        rmdir "$temp_dir"
+        log "✅ Fixed nested mnesia structure"
+    fi
 
     cleanup_shadow_files "$shadow_mnesia"
     log "✅ Shadow mnesia prepared successfully in persistent location"
@@ -86,26 +85,8 @@ copy_mnesia_to_shadow() {
 cleanup_shadow_files() {
     local shadow_mnesia="$1"
 
-    log "=== Cleaning up problematic files in shadow directory ==="
-
-    find "$shadow_mnesia" -name "*.pid" -delete 2>/dev/null || true
-    log "Removed PID files"
-
     find "$shadow_mnesia" -name "*.lock" -delete 2>/dev/null || true
     log "Removed lock files"
-
-    for node_dir in "$shadow_mnesia"/rabbit@*; do
-        if [ -d "$node_dir" ]; then
-            # Only remove temporary/lock files
-            rm -f "$node_dir"/recovery.dets 2>/dev/null || true
-            rm -f "$node_dir"/*.backup 2>/dev/null || true
-            log "Cleaned up temporary files in: $node_dir"
-        fi
-    done
-}
-
-setup_shadow_environment() {
-    log "=== Setting up shadow environment ==="
 
     mkdir -p "$SHADOW_BASE"
     export HOME="$SHADOW_BASE"
@@ -162,10 +143,10 @@ determine_mnesia_strategy() {
         }
 
         log "Step 3: Creating working copy: shadow → original"
-        cp -r "$SHADOW_MNESIA" "$ORIGINAL_MNESIA" || {
+        mkdir -p "$ORIGINAL_MNESIA"
+        cp -r "$SHADOW_MNESIA"/* "$ORIGINAL_MNESIA/" || {
             die "❌ Failed to create working copy!"
         }
-        chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
 
         log "✅ Migration will happen directly in original (shadow preserved as backup)"
     else
@@ -516,9 +497,6 @@ sync_shadow_to_original() {
         return 1
     }
 
-    log "Setting proper ownership..."
-    chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
-
     log "✅ Shadow successfully synced to original"
 }
 
@@ -571,10 +549,7 @@ main() {
     fi
 
     detect_existing_data
-
-    setup_shadow_environment
     determine_mnesia_strategy
-
     start_rabbitmq
     wait_for_rabbitmq
     verify_rabbitmq_status
@@ -606,6 +581,14 @@ main() {
     log "🚀 Migration complete! RabbitMQ 4.1 is ready for production use."
     log "📁 Data location: $ORIGINAL_MNESIA"
     log "💾 Backup preserved at: $SHADOW_MNESIA"
+
+    if [ -n "${RABBITMQ_PID:-}" ]; then
+        log "🔄 Waiting for RabbitMQ process (PID: $RABBITMQ_PID) to keep container alive..."
+        wait "$RABBITMQ_PID"
+        log "❌ RabbitMQ process exited with code: $?"
+    else
+        log "⚠️ No RabbitMQ PID found - container may exit"
+    fi
 }
 
 main "$@"
