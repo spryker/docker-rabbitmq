@@ -23,21 +23,24 @@ die() {
 detect_existing_data() {
     log "=== Detecting existing RabbitMQ data ==="
 
+    # If shadow exists, migration already happened - just start RabbitMQ
+    if [ -d "$SHADOW_MNESIA" ] && [ "$(ls -A "$SHADOW_MNESIA" 2>/dev/null)" ]; then
+        log "✅ Migration already completed, starting RabbitMQ 4.1..."
+        exec rabbitmq-server
+    fi
+
     if [ -d "$ORIGINAL_MNESIA" ]; then
+        # Look for existing node data
         EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbit(mq)?@' | head -n1 || true)
 
         if [ -n "$EXISTING_NODE" ]; then
-            log "✅ Found existing RabbitMQ node data: $EXISTING_NODE"
+            log "✅ Found existing data: $EXISTING_NODE - starting migration"
             return 0
-        else
-            log "Mnesia directory exists but no rabbit@/rabbitmq@ node directories found"
-            log "This indicates either:"
-            log "  1. Fresh/empty volume"
-            log "  2. Hostname changed between deployments"
-            log "  3. Previous data was cleared"
-            return 1
         fi
     fi
+
+    log "No existing data - fresh installation"
+    return 1
 }
 
 test_mnesia_writability() {
@@ -61,22 +64,29 @@ copy_mnesia_to_shadow() {
 
     mkdir -p "$shadow_mnesia" || die "Failed to create shadow mnesia directory"
 
-    log "Copying mnesia data to persistent shadow directory..."
-    if cp -r "$source_mnesia"/* "$shadow_mnesia/" 2>/dev/null; then
-        log "✅ Mnesia data copied successfully to persistent location"
-    else
-        die "❌ Failed to copy mnesia data to shadow directory"
+    log "Copying mnesia data to shadow directory..."
+
+    # Copy only node directory and essential files, skip AWS backups
+    for item in "$source_mnesia"/*; do
+        local basename=$(basename "$item")
+        # Skip AWS backup directories and temporary files
+        if [[ "$basename" =~ ^aws-backup- ]]; then
+            continue
+        fi
+
+        if ! cp -r "$item" "$shadow_mnesia/" 2>&1; then
+            log "⚠️ Warning: Failed to copy $basename"
+        fi
+    done
+
+    # Verify we have the node directory
+    if [ ! -d "$shadow_mnesia/$EXISTING_NODE" ]; then
+        die "❌ Failed to copy node directory: $EXISTING_NODE"
     fi
 
-    if [ -d "$shadow_mnesia/mnesia" ]; then
-        log "⚠️ Found nested mnesia/mnesia/ structure - fixing..."
-        local temp_dir="$shadow_mnesia/../mnesia-temp-$$"
-        mv "$shadow_mnesia/mnesia" "$temp_dir"
-        rm -rf "$shadow_mnesia"/*
-        mv "$temp_dir"/* "$shadow_mnesia/"
-        rmdir "$temp_dir"
-        log "✅ Fixed nested mnesia structure"
-    fi
+    log "✅ Data copied successfully"
+
+    chown -R rabbitmq:rabbitmq "$shadow_mnesia" 2>&1 || true
 
     cleanup_shadow_files "$shadow_mnesia"
     log "✅ Shadow mnesia prepared successfully in persistent location"
@@ -85,8 +95,19 @@ copy_mnesia_to_shadow() {
 cleanup_shadow_files() {
     local shadow_mnesia="$1"
 
+    find "$shadow_mnesia" -name "*.pid" -delete 2>/dev/null || true
     find "$shadow_mnesia" -name "*.lock" -delete 2>/dev/null || true
-    log "Removed lock files"
+
+    for node_dir in "$shadow_mnesia"/rabbit@*; do
+        if [ -d "$node_dir" ]; then
+            rm -f "$node_dir"/recovery.dets 2>/dev/null || true
+            rm -f "$node_dir"/*.backup 2>/dev/null || true
+        fi
+    done
+}
+
+setup_shadow_environment() {
+    log "=== Setting up shadow environment ==="
 
     mkdir -p "$SHADOW_BASE"
     export HOME="$SHADOW_BASE"
@@ -122,33 +143,26 @@ cleanup_shadow_files() {
 }
 
 determine_mnesia_strategy() {
-    log "=== Determining mnesia strategy ==="
-
-    if [ -d "$SHADOW_MNESIA" ]; then
-        log "Removing old shadow directory from previous migration..."
-        rm -rf "$SHADOW_MNESIA" 2>/dev/null || true
-    fi
+    log "=== Preparing migration ==="
 
     if [ -n "$EXISTING_NODE" ]; then
-        log "Strategy: Use shadow as temporary backup, then migrate in original"
-
-        log "Step 1: Backing up original → shadow"
+        log "Backing up data to shadow directory..."
         copy_mnesia_to_shadow "$ORIGINAL_MNESIA" "$SHADOW_MNESIA"
 
-        log "Step 2: Removing original to prepare for migration"
+        log "Preparing original directory..."
         local backup_path="${ORIGINAL_MNESIA}.pre-migration"
         mv "$ORIGINAL_MNESIA" "$backup_path" 2>/dev/null || {
             log "⚠️ Could not backup, removing original"
             rm -rf "$ORIGINAL_MNESIA" 2>/dev/null || true
         }
 
-        log "Step 3: Creating working copy: shadow → original"
-        mkdir -p "$ORIGINAL_MNESIA"
-        cp -r "$SHADOW_MNESIA"/* "$ORIGINAL_MNESIA/" || {
+        log "Creating working copy..."
+        cp -r "$SHADOW_MNESIA" "$ORIGINAL_MNESIA" || {
             die "❌ Failed to create working copy!"
         }
+        chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
 
-        log "✅ Migration will happen directly in original (shadow preserved as backup)"
+        log "✅ Ready for migration"
     else
         log "Strategy: Fresh installation in original"
         mkdir -p "$ORIGINAL_MNESIA"
@@ -457,8 +471,6 @@ setup_spryker_environment() {
                 log "⚠️ Setting up permissions for preserved vhost '${vhost}'"
                 timeout 30 rabbitmqctl set_permissions -p "$vhost" "$rabbitmq_user" ".*" ".*" ".*" || true
             fi
-        else
-            log "❌ Vhost '${vhost}' was lost during migration!"
         fi
     done
 
@@ -497,6 +509,9 @@ sync_shadow_to_original() {
         return 1
     }
 
+    log "Setting proper ownership..."
+    chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
+
     log "✅ Shadow successfully synced to original"
 }
 
@@ -509,47 +524,16 @@ print_completion_message() {
 }
 
 main() {
-    # Check for Docker environment indicators
-    local is_docker=false
-
-    # Check Docker-specific environment variables
-    if [ -n "${SPRYKER_DOCKER_SDK_PLATFORM:-}" ] || [ -n "${SPRYKER_DOCKER_TAG:-}" ]; then
-        log "Docker detected via Spryker environment variables"
-        is_docker=true
+    if ! detect_existing_data; then
+        # No existing data - fresh install, just start RabbitMQ
+        log "Fresh installation - starting RabbitMQ 4.1 directly..."
+        exec rabbitmq-server
     fi
 
-    # Check for Docker container indicators
-    if [ -f "/.dockerenv" ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
-        log "Docker detected via container indicators"
-        is_docker=true
-    fi
-
-    # Check hostname patterns typical for Docker
-    if echo "${HOSTNAME:-}" | grep -qE '^[a-f0-9]{12}$|broker|rabbitmq'; then
-        log "Docker detected via hostname pattern: ${HOSTNAME:-}"
-        is_docker=true
-    fi
-
-    # Check for --data --build scenario or Docker environment
-    if [ "$is_docker" = true ] || [ "$#" -gt 0 ]; then
-        if [ "$#" -gt 0 ]; then
-            # Check command line arguments for --data --build pattern
-            for arg in "$@"; do
-                case "$arg" in
-                    --data|--build)
-                        log "🚀 Docker SDK --data --build detected - using standard migration"
-                        ;;
-                esac
-            done
-        fi
-
-        if [ "$is_docker" = true ]; then
-            log "🚀 Docker environment detected - using standard RabbitMQ 4.1 migration"
-        fi
-    fi
-
-    detect_existing_data
+    # If we're here, we have data to migrate from 3.13
+    setup_shadow_environment
     determine_mnesia_strategy
+
     start_rabbitmq
     wait_for_rabbitmq
     verify_rabbitmq_status
