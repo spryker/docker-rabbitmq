@@ -9,29 +9,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check for required PR body content
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        shell: bash
         run: |
-          PR_BODY="${{ github.event.pull_request.body }}"
+          # Save PR body to a file for processing
+          echo "$PR_BODY" > pr_body.txt
 
-          # Check 1: 'Version release notes' section must exist and be non-empty.
-          if ! echo "$PR_BODY" | grep -q "### Version release notes"; then
+          # Check 1: 'Version release notes' section must exist and be non-empty
+          if ! grep -q "### Version release notes" pr_body.txt; then
             echo "Error: '### Version release notes' section is missing in the PR body."
             exit 1
           fi
           
-          # Extract content between 'Version release notes' and 'Improvements', then remove whitespace.
-          VERSION_NOTES_CONTENT=$(echo "$PR_BODY" | awk '/### Version release notes/{flag=1;next}/### Improvements/{flag=0}flag' | xargs)
+          # Extract content between 'Version release notes' and 'Improvements'
+          VERSION_NOTES_CONTENT=$(sed -n '/### Version release notes/,/### Improvements/p' pr_body.txt | \
+            grep -v "### Version release notes" | grep -v "### Improvements" | tr -d '[:space:]')
           
           if [ -z "$VERSION_NOTES_CONTENT" ]; then
-            echo "Error: The '### Version release notes' section cannot be empty. Please include the official release notes."
+            echo "Error: The '### Version release notes' section is empty. Please include the official release notes."
             exit 1
           fi
           echo "✅ 'Version release notes' section contains content."
 
-          # Check 2: 'Improvements' section must exist.
-          if ! echo "$PR_BODY" | grep -q "### Improvements"; then
+          # Check 2: 'Improvements' section must exist
+          if ! grep -q "### Improvements" pr_body.txt; then
             echo "Error: '### Improvements' section is missing in the PR body."
             exit 1
           fi
           echo "✅ 'Improvements' section is present."
           
           echo "✅ PR body format is correct."
+
+          # Clean up
+          rm pr_body.txt
