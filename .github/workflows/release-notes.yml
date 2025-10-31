@@ -107,7 +107,7 @@ jobs:
       - name: 📝 Prepare Final Release Notes File
         run: |
           NEW_NOTES_BLOCK_FILE="release-notes-block.md"
-          TARGET_FILE_PATH="./docs-repo/docs/ca/dev/image-releases/rabbitmq/release-notes.md"
+          TARGET_FILE_PATH="./docs-repo/docs/about/all/releases/image-releases/rabbitmq/release-notes-rabbitmq.md"
           NEW_LAST_UPDATED="${{ needs.generate_notes.outputs.last_updated_str }}"
           
           echo "Target file path: $TARGET_FILE_PATH"
@@ -139,6 +139,7 @@ jobs:
             description: This document describes the changes that have been recently released.
             last_updated: ${NEW_LAST_UPDATED}
             template: concept-topic-template
+            publish_date: "${PUBLISH_DATE}"
             ---
 
             This document describes the changes that have been recently released.
