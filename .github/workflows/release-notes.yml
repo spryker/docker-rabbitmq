@@ -2,10 +2,7 @@ name: Generate Release Notes on Merge
 
 on:
   pull_request:
-    types: [closed]
-    branches:
-      - master
-
+    types: [closed, opened, synchronize, edited]
 jobs:
   generate_notes:
     name: 📜 Generate Release Notes
