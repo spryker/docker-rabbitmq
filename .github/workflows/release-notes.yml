@@ -1,0 +1,165 @@
+name: Generate Release Notes on Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  generate_notes:
+    name: 📜 Generate Release Notes
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      release_date: ${{ steps.assemble.outputs.release_date }}
+      last_updated_str: ${{ steps.assemble.outputs.last_updated_str }}
+    steps:
+      - name: 📣 Get Merged PR Info
+        id: pr-info
+        uses: actions-ecosystem/action-get-merged-pull-request@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ✍️ Extract Sections from PR Body
+        id: extract
+        run: |
+          read -r -d '' PR_BODY <<'EOF'
+          ${{ steps.pr-info.outputs.body }}
+          EOF
+
+          VERSION_NOTES=$(echo "$PR_BODY" | awk '/### Version release notes/{flag=1;next}/### Improvements/{flag=0}flag')
+          echo "version_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$VERSION_NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          IMPROVEMENTS=$(echo "$PR_BODY" | awk '/### Improvements/{flag=1;next}/###|## /{flag=0}flag')
+          echo "improvements<<EOF" >> $GITHUB_OUTPUT
+          echo "$IMPROVEMENTS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          SECURITY_FIXES_CONTENT=""
+          if echo "$PR_BODY" | grep -q "### Security Fixes"; then
+            SECURITY_FIXES_RAW=$(echo "$PR_BODY" | awk '/### Security Fixes/{flag=1;next}/## /{flag=0}flag')
+            if [[ -n "$(echo "$SECURITY_FIXES_RAW" | xargs)" ]]; then
+              SECURITY_FIXES_CONTENT=$(printf '\n### Security Fixes\n%s' "$SECURITY_FIXES_RAW")
+            fi
+          fi
+          echo "security_fixes<<EOF" >> $GITHUB_OUTPUT
+          echo "$SECURITY_FIXES_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 📦 Assemble Release Notes Block
+        id: assemble
+        run: |
+          RELEASE_DATE=$(date +'%Y%m%d')
+          echo "release_date=$RELEASE_DATE" >> $GITHUB_OUTPUT
+          
+          PUBLISH_DATE=$(date +'%Y-%m-%d')
+          LAST_UPDATED_STR=$(date +'%B %d, %Y')
+          echo "last_updated_str=$LAST_UPDATED_STR" >> $GITHUB_OUTPUT
+
+          cat << EOF > release-notes-block.md
+          ---
+          title: Release notes ${RELEASE_DATE}.0
+          publish_date: "${PUBLISH_DATE}"
+          ---
+
+          ## Changelog
+
+          ### Version release notes
+          ${{ steps.extract.outputs.version_notes }}
+
+          ### Improvements
+          ${{ steps.extract.outputs.improvements }}
+          ${{ steps.extract.outputs.security_fixes }}
+          EOF
+
+          echo "::group::📜 New Release Notes Block"
+          cat release-notes-block.md
+          echo "::endgroup::"
+          
+      - name: 📤 Upload Release Notes Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-artifact
+          path: release-notes-block.md
+  create-release-pr:
+    name: 📄 Create Release Notes PR in Docs Repo
+    needs: generate_notes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - name: 📥 Download Release Notes Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes-artifact
+
+      - name: Checkout Documentation Repository
+        uses: actions/checkout@v4
+        with:
+          repository: spryker/spryker-docs
+          token: ${{ secrets.DOCS_REPO_PAT }}
+          path: docs-repo
+
+      - name: 📝 Prepare Final Release Notes File
+        run: |
+          NEW_NOTES_BLOCK_FILE="release-notes-block.md"
+          TARGET_FILE_PATH="./docs-repo/docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq.md"
+          NEW_LAST_UPDATED="${{ needs.generate_notes.outputs.last_updated_str }}"
+          
+          echo "Target file path: $TARGET_FILE_PATH"
+          mkdir -p "$(dirname "$TARGET_FILE_PATH")"
+
+          if [ -f "$TARGET_FILE_PATH" ]; then
+            echo "File exists. Prepending new release block."
+            EXISTING_CONTENT=$(cat "$TARGET_FILE_PATH")
+            UPDATED_CONTENT=$(echo "$EXISTING_CONTENT" | sed "0,/last_updated:.*/s/last_updated:.*/last_updated: ${NEW_LAST_UPDATED}/")
+            
+            line_num=$(echo "$UPDATED_CONTENT" | sed -n '/---/=' | sed -n '2p')
+            MAIN_HEADER=$(echo "$UPDATED_CONTENT" | head -n "$line_num")
+            EXISTING_BODY=$(echo "$UPDATED_CONTENT" | tail -n "+$((line_num + 1))")
+
+            # Re-assemble the file with the new block prepended to the body
+            {
+              echo "$MAIN_HEADER"
+              echo ""
+              cat "$NEW_NOTES_BLOCK_FILE"
+              echo ""
+              echo "---"
+              echo "$EXISTING_BODY"
+            } > "$TARGET_FILE_PATH"
+          else
+            echo "File does not exist. Creating new file."
+            cat << EOF > "$TARGET_FILE_PATH"
+            ---
+            title: Release notes for RabbitMQ image
+            description: This document describes the changes that have been recently released.
+            last_updated: ${NEW_LAST_UPDATED}
+            template: concept-topic-template
+            publish_date: "${PUBLISH_DATE}"
+            ---
+
+            This document describes the changes that have been recently released.
+            For additional support with this content, contact our support.  
+            If you found a new security vulnerability, contact us at **security@spryker.com**.
+
+            EOF
+            cat "$NEW_NOTES_BLOCK_FILE" >> "$TARGET_FILE_PATH"
+          fi
+
+      - name: 🚀 Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.DOCS_REPO_PAT }}
+          path: ./docs-repo
+          commit-message: "docs: Add release notes for ${{ needs.generate_notes.outputs.release_date }}"
+          branch: "docs/release-notes-${{ needs.generate_notes.outputs.release_date }}"
+          title: "Release Notes for ${{ needs.generate_notes.outputs.release_date }}"
+          body: |
+            This PR contains the latest automated release notes generated from the source repository.
+            Please review and merge. ✅
+          labels: "TW review needed, automation"
+          base: master

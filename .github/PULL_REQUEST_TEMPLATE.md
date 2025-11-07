@@ -1,6 +1,18 @@
 ## PR Description
 Add a meaningful description here that will let us know what you want to fix with this PR or what functionality you want to add.
 
+### Official release notes page
+
+https://www.rabbitmq.com/release-information
+
+!!! PLEASE INCLUDE RELEASE NOTES OF THE SPECIFIC VERSION FROM THE OFFICIAL SOURCE !!!
+
+### Version release notes
+
+### Improvements
+
+### Security Fixes
+
 ## Steps before you submit a PR
 - Please add tests for the code you add if it's possible.
 - Please check out our contribution guide: https://docs.spryker.com/docs/dg/dev/code-contribution-guide.html
