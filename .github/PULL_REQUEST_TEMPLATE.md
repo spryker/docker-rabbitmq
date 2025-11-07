@@ -5,7 +5,7 @@ Add a meaningful description here that will let us know what you want to fix wit
 
 ### Security Fixes
 
-### Official release notes page
+### Official RabbitMQ release notes page
 
 https://www.rabbitmq.com/release-information
 
