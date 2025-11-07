@@ -6,7 +6,6 @@ on:
 jobs:
   generate_notes:
     name: 📜 Generate Release Notes
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     outputs:
       release_date: ${{ steps.assemble.outputs.release_date }}
