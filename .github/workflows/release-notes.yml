@@ -52,10 +52,6 @@ jobs:
 
           cat << EOF > release-notes-block.md
           ---
-          title: Release notes for spryker-rabbitmq ${RELEASE_DATE}.0
-          
-          publish_date: "${PUBLISH_DATE}"
-          ---
 
           Improvements
           ------------
