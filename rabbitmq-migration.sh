@@ -142,26 +142,6 @@ setup_shadow_environment() {
     log "✅ Shadow environment ready with synchronized cookie"
 }
 
-setup_rabbitmq_config() {
-    log "=== Setting up RabbitMQ configuration ==="
-    
-    local enable_oauth_config="${ENABLE_OAUTH_CONFIG:-true}"
-    
-    if [ "$enable_oauth_config" = "true" ]; then
-        if [ -f "/tmp/rabbitmq.conf.template" ]; then
-            log "✅ OAuth config enabled - copying rabbitmq.conf"
-            cp /tmp/rabbitmq.conf.template /etc/rabbitmq/rabbitmq.conf
-            log "✅ Configuration file copied to /etc/rabbitmq/rabbitmq.conf"
-        else
-            log "⚠️ Warning: rabbitmq.conf template not found at /tmp/rabbitmq.conf.template"
-        fi
-    else
-        log "ℹ️ OAuth config disabled (ENABLE_OAUTH_CONFIG=false) - skipping rabbitmq.conf"
-        # Remove config if it exists from a previous run
-        rm -f /etc/rabbitmq/rabbitmq.conf
-    fi
-}
-
 determine_mnesia_strategy() {
     log "=== Preparing migration ==="
 
@@ -544,9 +524,6 @@ print_completion_message() {
 }
 
 main() {
-    # Setup config before starting RabbitMQ
-    setup_rabbitmq_config
-    
     if ! detect_existing_data; then
         # No existing data - fresh install, just start RabbitMQ
         log "Fresh installation - starting RabbitMQ 4.1 directly..."
