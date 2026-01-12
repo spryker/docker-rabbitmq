@@ -9,7 +9,7 @@ RUN rabbitmq-plugins enable --offline rabbitmq_management \
     && rabbitmq-plugins enable --offline rabbitmq_shovel_management  \
     && rabbitmq-plugins enable --offline rabbitmq_auth_backend_oauth2
 
-COPY 4.1/rabbitmq.conf /tmp/rabbitmq.conf.template
+COPY 4.1-sso/rabbitmq.conf /tmp/rabbitmq.conf.template
 COPY rabbitmq-migration.sh /usr/local/bin/rabbitmq-migration.sh
 RUN chmod +x /usr/local/bin/rabbitmq-migration.sh
 
