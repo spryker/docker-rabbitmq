@@ -53,13 +53,17 @@ jobs:
           LAST_UPDATED_STR=$(date +'%B %d, %Y')
           echo "last_updated_str=$LAST_UPDATED_STR" >> $GITHUB_OUTPUT
 
-          cat << 'EOF' > release-notes-new-file.md
+          # Process version notes to convert bare URLs to proper markdown links
+          PROCESSED_VERSION_NOTES=$(echo '${{ steps.extract.outputs.version_notes }}' | \
+            sed -E 's|([^(])(https?://[^ )]+)|\1[\2](\2)|g')
+
+          cat << 'TEMPLATE_EOF' > release-notes-new-file.md
           ---
-          title: Release notes for spryker-rabbitmq $RELEASE_DATE
+          title: Release notes for spryker-rabbitmq RELEASE_DATE_PLACEHOLDER
           description: This document describes the changes that have been recently released.
-          last_updated: $LAST_UPDATED_STR
+          last_updated: LAST_UPDATED_PLACEHOLDER
           template: concept-topic-template
-          publish_date: "$PUBLISH_DATE"
+          publish_date: "PUBLISH_DATE_PLACEHOLDER"
           ---
 
           This document describes the changes that have been recently released.
@@ -68,25 +72,28 @@ jobs:
 
           ---
 
-          ## Release notes for spryker-rabbitmq $RELEASE_DATE
+          ## Release notes for spryker-rabbitmq RELEASE_DATE_PLACEHOLDER
 
           **Improvements**:
 
-          ${{ steps.extract.outputs.improvements }}
+          IMPROVEMENTS_PLACEHOLDER
 
           ### Security Fixes
 
-          ${{ steps.extract.outputs.security_fixes }}
+          SECURITY_FIXES_PLACEHOLDER
 
           ### Version release notes
 
-          $(echo "${{ steps.extract.outputs.version_notes }}" | sed 's|https://\([^ ]*\)|[\1](https://\1)|g')
-          EOF
+          VERSION_NOTES_PLACEHOLDER
+          TEMPLATE_EOF
 
-          # Replace variables in the file
-          sed -i "s|\$RELEASE_DATE|$RELEASE_DATE|g" release-notes-new-file.md
-          sed -i "s|\$LAST_UPDATED_STR|$LAST_UPDATED_STR|g" release-notes-new-file.md
-          sed -i "s|\$PUBLISH_DATE|$PUBLISH_DATE|g" release-notes-new-file.md
+          # Replace placeholders
+          sed -i "s|RELEASE_DATE_PLACEHOLDER|$RELEASE_DATE|g" release-notes-new-file.md
+          sed -i "s|LAST_UPDATED_PLACEHOLDER|$LAST_UPDATED_STR|g" release-notes-new-file.md
+          sed -i "s|PUBLISH_DATE_PLACEHOLDER|$PUBLISH_DATE|g" release-notes-new-file.md
+          sed -i "s|IMPROVEMENTS_PLACEHOLDER|${{ steps.extract.outputs.improvements }}|g" release-notes-new-file.md
+          sed -i "s|SECURITY_FIXES_PLACEHOLDER|${{ steps.extract.outputs.security_fixes }}|g" release-notes-new-file.md
+          sed -i "s|VERSION_NOTES_PLACEHOLDER|${PROCESSED_VERSION_NOTES}|g" release-notes-new-file.md
 
           echo "::group::📜 New Release Notes File"
           cat release-notes-new-file.md
@@ -137,22 +144,52 @@ jobs:
           
           echo "Updating sidebar: $SIDEBAR_FILE"
           
-          # Create the new entry with proper YAML formatting
-          NEW_ENTRY="          - title: Release notes for spryker-rabbitmq $RELEASE_DATE
-            url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html"
+          # Find the line containing "Image releases" under "Releases"
+          IMAGE_RELEASES_LINE=$(grep -n "title: Image releases" "$SIDEBAR_FILE" | cut -d: -f1)
           
-          # Find the line number where "Release notes for RabbitMQ" is located
-          LINE_NUM=$(grep -n "title: Release notes for RabbitMQ" "$SIDEBAR_FILE" | cut -d: -f1)
-          
-          if [ -n "$LINE_NUM" ]; then
-            # Insert the new entry after "Release notes for RabbitMQ"
-            awk -v line="$LINE_NUM" -v entry="$NEW_ENTRY" 'NR==line{print; print entry; next}1' "$SIDEBAR_FILE" > "$SIDEBAR_FILE.tmp"
-            mv "$SIDEBAR_FILE.tmp" "$SIDEBAR_FILE"
-            echo "✅ Added new entry to sidebar after line $LINE_NUM"
-          else
-            echo "❌ Could not find 'Release notes for RabbitMQ' in sidebar"
+          if [ -z "$IMAGE_RELEASES_LINE" ]; then
+            echo "❌ Could not find 'Image releases' section in sidebar"
             exit 1
           fi
+          
+          # Check if RabbitMQ section already exists
+          if grep -q "title: Release notes for RabbitMQ" "$SIDEBAR_FILE"; then
+            echo "RabbitMQ section found, adding new entry..."
+            # Find the line number where "Release notes for RabbitMQ" is located
+            RABBITMQ_LINE=$(grep -n "title: Release notes for RabbitMQ" "$SIDEBAR_FILE" | cut -d: -f1)
+            
+            # Insert the new entry as the first item under "Release notes for RabbitMQ"
+            # We need to find the "nested:" line after "Release notes for RabbitMQ"
+            NESTED_LINE=$((RABBITMQ_LINE + 2))
+            
+            # Create the new entry with proper indentation (12 spaces)
+            NEW_ENTRY="            - title: Release notes for spryker-rabbitmq $RELEASE_DATE
+              url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html"
+            
+            # Insert at the beginning of the nested section
+            awk -v line="$NESTED_LINE" -v entry="$NEW_ENTRY" 'NR==line{print entry; print; next}1' "$SIDEBAR_FILE" > "$SIDEBAR_FILE.tmp"
+            mv "$SIDEBAR_FILE.tmp" "$SIDEBAR_FILE"
+            echo "✅ Added new entry to existing RabbitMQ section"
+          else
+            echo "RabbitMQ section not found, creating new section..."
+            # Find where to insert (after "Image releases" nested section starts)
+            INSERT_LINE=$((IMAGE_RELEASES_LINE + 2))
+            
+            # Create the entire RabbitMQ section
+            NEW_SECTION="          - title: Release notes for RabbitMQ
+            nested:
+            - title: Release notes for spryker-rabbitmq $RELEASE_DATE
+              url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html"
+            
+            # Insert the new section
+            awk -v line="$INSERT_LINE" -v entry="$NEW_SECTION" 'NR==line{print entry; print; next}1' "$SIDEBAR_FILE" > "$SIDEBAR_FILE.tmp"
+            mv "$SIDEBAR_FILE.tmp" "$SIDEBAR_FILE"
+            echo "✅ Created new RabbitMQ section with entry"
+          fi
+          
+          echo "::group::📋 Updated Sidebar"
+          cat "$SIDEBAR_FILE"
+          echo "::endgroup::"
 
       - name: 🚀 Create Pull Request
         uses: peter-evans/create-pull-request@v6
