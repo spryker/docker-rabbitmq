@@ -149,7 +149,7 @@ jobs:
           
           echo "✅ RabbitMQ section found, adding new entry..."
           
-          echo "::group::📋 Current RabbitMQ section (before update)"
+          echo "::group::📋 Current RabbitMQ section"
           grep -A 10 "title: RabbitMQ" "$SIDEBAR_FILE" | head -15
           echo "::endgroup::"
           
@@ -166,13 +166,17 @@ jobs:
           
           echo "Inserting new entry at line: $INSERT_LINE"
           
-          sed -i "${INSERT_LINE}i\\
-          - title: Release notes for spryker-rabbitmq $RELEASE_DATE\\
-            url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html" "$SIDEBAR_FILE"
+          printf "          - title: Release notes for spryker-rabbitmq %s\n            url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-%s.html\n" "$RELEASE_DATE" "$RELEASE_DATE" > /tmp/new_entry.txt
+          
+          # Insert the new entry
+          head -n $((INSERT_LINE - 1)) "$SIDEBAR_FILE" > /tmp/sidebar_temp.yml
+          cat /tmp/new_entry.txt >> /tmp/sidebar_temp.yml
+          tail -n +$INSERT_LINE "$SIDEBAR_FILE" >> /tmp/sidebar_temp.yml
+          mv /tmp/sidebar_temp.yml "$SIDEBAR_FILE"
           
           echo "✅ Added new entry to RabbitMQ section at line $INSERT_LINE"
           
-          echo "::group::📋 Updated RabbitMQ section (after update)"
+          echo "::group::📋 Updated RabbitMQ section"
           grep -A 15 "title: RabbitMQ" "$SIDEBAR_FILE" | head -20
           echo "::endgroup::"
 
