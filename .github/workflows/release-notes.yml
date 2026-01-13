@@ -2,9 +2,10 @@ name: Generate Release Notes on Merge
 
 on:
   pull_request:
-    types: [closed]
+    types: [opened, synchronize]
     branches:
       - master
+      - SC-24082-release-notes-refactor
 jobs:
   generate_notes:
     name: 📜 Generate Release Notes
