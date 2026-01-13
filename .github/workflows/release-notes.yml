@@ -57,6 +57,17 @@ jobs:
           PROCESSED_VERSION_NOTES=$(echo '${{ steps.extract.outputs.version_notes }}' | \
             sed -E 's|([^(])(https?://[^ )]+)|\1[\2](\2)|g')
 
+          # Check if security fixes section has content
+          SECURITY_FIXES='${{ steps.extract.outputs.security_fixes }}'
+          SECURITY_SECTION=""
+          if [ -n "$(echo "$SECURITY_FIXES" | tr -d '[:space:]')" ]; then
+            SECURITY_SECTION="### Security Fixes
+
+          $SECURITY_FIXES
+
+          "
+          fi
+
           cat << EOF > release-notes-new-file.md
           ---
           title: Release notes for spryker-rabbitmq $RELEASE_DATE
@@ -78,11 +89,7 @@ jobs:
 
           ${{ steps.extract.outputs.improvements }}
 
-          ### Security Fixes
-
-          ${{ steps.extract.outputs.security_fixes }}
-
-          ### Version release notes
+          ${SECURITY_SECTION}### Version release notes
 
           ${PROCESSED_VERSION_NOTES}
           EOF
