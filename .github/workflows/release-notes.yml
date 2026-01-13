@@ -57,13 +57,13 @@ jobs:
           PROCESSED_VERSION_NOTES=$(echo '${{ steps.extract.outputs.version_notes }}' | \
             sed -E 's|([^(])(https?://[^ )]+)|\1[\2](\2)|g')
 
-          cat << 'TEMPLATE_EOF' > release-notes-new-file.md
+          cat << EOF > release-notes-new-file.md
           ---
-          title: Release notes for spryker-rabbitmq RELEASE_DATE_PLACEHOLDER
+          title: Release notes for spryker-rabbitmq $RELEASE_DATE
           description: This document describes the changes that have been recently released.
-          last_updated: LAST_UPDATED_PLACEHOLDER
+          last_updated: $LAST_UPDATED_STR
           template: concept-topic-template
-          publish_date: "PUBLISH_DATE_PLACEHOLDER"
+          publish_date: "$PUBLISH_DATE"
           ---
 
           This document describes the changes that have been recently released.
@@ -72,28 +72,20 @@ jobs:
 
           ---
 
-          ## Release notes for spryker-rabbitmq RELEASE_DATE_PLACEHOLDER
+          ## Release notes for spryker-rabbitmq $RELEASE_DATE
 
           **Improvements**:
 
-          IMPROVEMENTS_PLACEHOLDER
+          ${{ steps.extract.outputs.improvements }}
 
           ### Security Fixes
 
-          SECURITY_FIXES_PLACEHOLDER
+          ${{ steps.extract.outputs.security_fixes }}
 
           ### Version release notes
 
-          VERSION_NOTES_PLACEHOLDER
-          TEMPLATE_EOF
-
-          # Replace placeholders
-          sed -i "s|RELEASE_DATE_PLACEHOLDER|$RELEASE_DATE|g" release-notes-new-file.md
-          sed -i "s|LAST_UPDATED_PLACEHOLDER|$LAST_UPDATED_STR|g" release-notes-new-file.md
-          sed -i "s|PUBLISH_DATE_PLACEHOLDER|$PUBLISH_DATE|g" release-notes-new-file.md
-          sed -i "s|IMPROVEMENTS_PLACEHOLDER|${{ steps.extract.outputs.improvements }}|g" release-notes-new-file.md
-          sed -i "s|SECURITY_FIXES_PLACEHOLDER|${{ steps.extract.outputs.security_fixes }}|g" release-notes-new-file.md
-          sed -i "s|VERSION_NOTES_PLACEHOLDER|${PROCESSED_VERSION_NOTES}|g" release-notes-new-file.md
+          ${PROCESSED_VERSION_NOTES}
+          EOF
 
           echo "::group::📜 New Release Notes File"
           cat release-notes-new-file.md
@@ -158,21 +150,17 @@ jobs:
             # Find the line number where "Release notes for RabbitMQ" is located
             RABBITMQ_LINE=$(grep -n "title: Release notes for RabbitMQ" "$SIDEBAR_FILE" | cut -d: -f1)
             
-            # Insert the new entry as the first item under "Release notes for RabbitMQ"
-            # We need to find the "nested:" line after "Release notes for RabbitMQ"
             NESTED_LINE=$((RABBITMQ_LINE + 2))
             
-            # Create the new entry with proper indentation (12 spaces)
             NEW_ENTRY="            - title: Release notes for spryker-rabbitmq $RELEASE_DATE
               url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html"
             
-            # Insert at the beginning of the nested section
             awk -v line="$NESTED_LINE" -v entry="$NEW_ENTRY" 'NR==line{print entry; print; next}1' "$SIDEBAR_FILE" > "$SIDEBAR_FILE.tmp"
             mv "$SIDEBAR_FILE.tmp" "$SIDEBAR_FILE"
             echo "✅ Added new entry to existing RabbitMQ section"
           else
             echo "RabbitMQ section not found, creating new section..."
-            # Find where to insert (after "Image releases" nested section starts)
+
             INSERT_LINE=$((IMAGE_RELEASES_LINE + 2))
             
             # Create the entire RabbitMQ section
@@ -181,7 +169,6 @@ jobs:
             - title: Release notes for spryker-rabbitmq $RELEASE_DATE
               url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html"
             
-            # Insert the new section
             awk -v line="$INSERT_LINE" -v entry="$NEW_SECTION" 'NR==line{print entry; print; next}1' "$SIDEBAR_FILE" > "$SIDEBAR_FILE.tmp"
             mv "$SIDEBAR_FILE.tmp" "$SIDEBAR_FILE"
             echo "✅ Created new RabbitMQ section with entry"
