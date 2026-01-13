@@ -164,14 +164,11 @@ jobs:
           
           INSERT_LINE=$((RABBITMQ_LINE + 2))
           
-          # Create the new entry with proper indentation
-          NEW_ENTRY="          - title: Release notes for spryker-rabbitmq $RELEASE_DATE
-            url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html"
-          
           echo "Inserting new entry at line: $INSERT_LINE"
           
-          awk -v line="$INSERT_LINE" -v entry="$NEW_ENTRY" 'NR==line{print entry; print; next}1' "$SIDEBAR_FILE" > "$SIDEBAR_FILE.tmp"
-          mv "$SIDEBAR_FILE.tmp" "$SIDEBAR_FILE"
+          sed -i "${INSERT_LINE}i\\
+          - title: Release notes for spryker-rabbitmq $RELEASE_DATE\\
+            url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html" "$SIDEBAR_FILE"
           
           echo "✅ Added new entry to RabbitMQ section at line $INSERT_LINE"
           
