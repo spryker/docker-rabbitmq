@@ -136,46 +136,39 @@ jobs:
           
           echo "Updating sidebar: $SIDEBAR_FILE"
           
-          # Find the line containing "Image releases" under "Releases"
-          IMAGE_RELEASES_LINE=$(grep -n "title: Image releases" "$SIDEBAR_FILE" | cut -d: -f1)
-          
-          if [ -z "$IMAGE_RELEASES_LINE" ]; then
-            echo "❌ Could not find 'Image releases' section in sidebar"
+          # Check if RabbitMQ section exists
+          if ! grep -q "title: Release notes for RabbitMQ" "$SIDEBAR_FILE"; then
+            echo "⚠️ RabbitMQ section does not exist in sidebar. Please create it manually first."
+            echo "Expected to find: 'title: Release notes for RabbitMQ'"
+            echo ""
+            echo "Please add the following structure to the sidebar under 'Image releases':"
+            echo "          - title: Release notes for RabbitMQ"
+            echo "            nested:"
             exit 1
           fi
           
-          # Check if RabbitMQ section already exists
-          if grep -q "title: Release notes for RabbitMQ" "$SIDEBAR_FILE"; then
-            echo "RabbitMQ section found, adding new entry..."
-            # Find the line number where "Release notes for RabbitMQ" is located
-            RABBITMQ_LINE=$(grep -n "title: Release notes for RabbitMQ" "$SIDEBAR_FILE" | cut -d: -f1)
-            
-            NESTED_LINE=$((RABBITMQ_LINE + 2))
-            
-            NEW_ENTRY="            - title: Release notes for spryker-rabbitmq $RELEASE_DATE
-              url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html"
-            
-            awk -v line="$NESTED_LINE" -v entry="$NEW_ENTRY" 'NR==line{print entry; print; next}1' "$SIDEBAR_FILE" > "$SIDEBAR_FILE.tmp"
-            mv "$SIDEBAR_FILE.tmp" "$SIDEBAR_FILE"
-            echo "✅ Added new entry to existing RabbitMQ section"
-          else
-            echo "RabbitMQ section not found, creating new section..."
-
-            INSERT_LINE=$((IMAGE_RELEASES_LINE + 2))
-            
-            # Create the entire RabbitMQ section
-            NEW_SECTION="          - title: Release notes for RabbitMQ
-            nested:
-            - title: Release notes for spryker-rabbitmq $RELEASE_DATE
-              url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html"
-            
-            awk -v line="$INSERT_LINE" -v entry="$NEW_SECTION" 'NR==line{print entry; print; next}1' "$SIDEBAR_FILE" > "$SIDEBAR_FILE.tmp"
-            mv "$SIDEBAR_FILE.tmp" "$SIDEBAR_FILE"
-            echo "✅ Created new RabbitMQ section with entry"
-          fi
+          echo "✅ RabbitMQ section found, adding new entry..."
           
-          echo "::group::📋 Updated Sidebar"
-          cat "$SIDEBAR_FILE"
+          # Show the current RabbitMQ section before modification
+          echo "::group::📋 Current RabbitMQ section (before update)"
+          grep -A 5 "title: Release notes for RabbitMQ" "$SIDEBAR_FILE"
+          echo "::endgroup::"
+          
+          RABBITMQ_LINE=$(grep -n "title: Release notes for RabbitMQ" "$SIDEBAR_FILE" | cut -d: -f1)
+          
+          NESTED_LINE=$((RABBITMQ_LINE + 2))
+          
+          NEW_ENTRY="            - title: Release notes for spryker-rabbitmq $RELEASE_DATE
+              url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-$RELEASE_DATE.html"
+          
+          awk -v line="$NESTED_LINE" -v entry="$NEW_ENTRY" 'NR==line{print entry; print; next}1' "$SIDEBAR_FILE" > "$SIDEBAR_FILE.tmp"
+          mv "$SIDEBAR_FILE.tmp" "$SIDEBAR_FILE"
+          
+          echo "✅ Added new entry to RabbitMQ section at line $NESTED_LINE"
+          
+          # Show the updated RabbitMQ section
+          echo "::group::📋 Updated RabbitMQ section"
+          grep -A 10 "title: Release notes for RabbitMQ" "$SIDEBAR_FILE"
           echo "::endgroup::"
 
       - name: 🚀 Create Pull Request
