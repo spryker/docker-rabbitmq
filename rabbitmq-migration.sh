@@ -6,7 +6,7 @@ set -euo pipefail
 
 set -m
 
-# Function to handle SIGTERM from AWS
+# Function to handle SIGTERM
 terminate() {
     echo >&2 "Caught SIGTERM, forwarding to children..."
     rabbitmqctl stop
@@ -89,20 +89,10 @@ copy_mnesia_to_shadow() {
 
     log "Copying mnesia data to shadow directory..."
 
-    # Use 'cp -RLp' instead of '-a' to avoid 'Operation not permitted' ownership errors on EFS
-    for item in "$source_mnesia"/*; do
-        local basename=$(basename "$item")
-        if [[ "$basename" =~ ^aws-backup- ]]; then
-            continue
-        fi
+    if ! cp -RL "$source_mnesia"/* "$shadow_mnesia/" 2>&1; then
+        log "⚠️ Note: Non-fatal copy warning (likely metadata preservation errors)"
+    fi
 
-        log "Copying $basename..."
-        if ! cp -RLp "$item" "$shadow_mnesia/" 2>&1; then
-            log "⚠️ Note: Non-fatal ownership warning for $basename"
-        fi
-    done
-
-    log "Adjusting shadow directory ownership..."
     chown -R "$(id -u):$(id -g)" "$shadow_mnesia" 2>/dev/null || true
 
     if [ ! -d "$shadow_mnesia/$EXISTING_NODE" ]; then
@@ -142,7 +132,7 @@ setup_shadow_environment() {
     local cookie_val="$(cat "$shadow_cookie")"
     export RABBITMQ_SERVER_ERL_ARGS="-setcookie ${cookie_val}"
     export RABBITMQ_CTL_ERL_ARGS="-setcookie ${cookie_val}"
-    chown -R rabbitmq:rabbitmq "$HOME" 2>/dev/null || true
+    chown -R "$(id -u):$(id -g)" "$HOME" 2>/dev/null || true
 
     log "✅ Environment ready with persistent cookie"
 }
@@ -158,7 +148,7 @@ determine_mnesia_strategy() {
         rm -rf "$ORIGINAL_MNESIA/"*
 
         log "Restoring data to EFS and cleaning up /tmp..."
-        cp -RLp "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
+        cp -RL "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
         rm -rf "$SHADOW_BASE"
 
         chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
@@ -262,7 +252,7 @@ main() {
     # Auto-repair nested mnesia directories
     if [ -d /var/lib/rabbitmq/mnesia/mnesia ]; then
         log "Repairing nested mnesia structure..."
-        cp -RLp /var/lib/rabbitmq/mnesia/mnesia/. /var/lib/rabbitmq/mnesia/
+        cp -RL /var/lib/rabbitmq/mnesia/mnesia/. /var/lib/rabbitmq/mnesia/
         rm -rf /var/lib/rabbitmq/mnesia/mnesia
     fi
 
