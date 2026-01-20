@@ -136,19 +136,24 @@ setup_shadow_environment() {
     if [ -s "$main_cookie" ] && [ -r "$main_cookie" ]; then
         cp "$main_cookie" "$shadow_cookie"
         chmod 600 "$shadow_cookie"
-        log "Copied existing Erlang cookie to shadow"
+        log "Copied existing Erlang cookie from /var/lib/rabbitmq to shadow HOME"
     elif [ -s "$shadow_cookie" ]; then
         log "Using existing shadow Erlang cookie"
     else
-        echo "rabbitmq-cookie-$(date +%s)" > "$shadow_cookie"
-        chmod 600 "$shadow_cookie"
-        log "Created new Erlang cookie in shadow"
-
+        # Create in main location first
         if [ -w "/var/lib/rabbitmq" ]; then
-            cp "$shadow_cookie" "$main_cookie"
+            echo "rabbitmq-cookie-$(date +%s)" > "$main_cookie"
             chmod 600 "$main_cookie"
             chown rabbitmq:rabbitmq "$main_cookie" 2>/dev/null || true
-            log "Synchronized cookie to main directory"
+            log "Created new Erlang cookie at /var/lib/rabbitmq/.erlang.cookie"
+            
+            # Copy to shadow HOME
+            cp "$main_cookie" "$shadow_cookie"
+            chmod 600 "$shadow_cookie"
+        else
+            echo "rabbitmq-cookie-$(date +%s)" > "$shadow_cookie"
+            chmod 600 "$shadow_cookie"
+            log "Created new Erlang cookie in shadow HOME (main location not writable)"
         fi
     fi
 
@@ -286,14 +291,14 @@ update_rabbitmq_policies() {
 
             if [ -n "$policies" ]; then
                 echo "$policies" | while IFS=$'\t' read -r vhost name pattern apply_to definition priority; do
-    if [[ "$definition" == *"ha-mode"* ]] || [[ "$definition" == *"ha-sync-mode"* ]]; then
-        rabbitmqctl clear_policy -p "$vhost" "$name"
-        if [[ "$definition" == *'"queue-mode":"lazy"'* ]]; then
-            rabbitmqctl set_policy -p "$vhost" "$name" "$pattern" \
-              '{"queue-mode":"lazy"}' --apply-to "$apply_to" --priority "$priority"
-        fi
-    fi
-done
+                    if [[ "$definition" == *"ha-mode"* ]] || [[ "$definition" == *"ha-sync-mode"* ]]; then
+                        rabbitmqctl clear_policy -p "$vhost" "$name"
+                        if [[ "$definition" == *'"queue-mode":"lazy"'* ]]; then
+                            rabbitmqctl set_policy -p "$vhost" "$name" "$pattern" \
+                              '{"queue-mode":"lazy"}' --apply-to "$apply_to" --priority "$priority"
+                        fi
+                    fi
+                done
             fi
         fi
     done <<< "$vhosts"
@@ -554,9 +559,7 @@ print_completion_message() {
 
 main() {
     if ! detect_existing_data; then
-        # No existing data - fresh install, just start RabbitMQ
-        log "Fresh installation - starting RabbitMQ 4.1 directly..."
-        rabbitmq-server &
+        log "🔄 Waiting for RabbitMQ process to keep container alive..."
         wait
         exit 0
     fi
