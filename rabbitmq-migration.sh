@@ -94,7 +94,8 @@ setup_rabbitmq_environment() {
 
 
 start_rabbitmq() {
-    log "Ensuring EFS permissions for rabbitmq user..."
+    log "Ensuring EFS mnesia directory exists and has correct permissions..."
+    mkdir -p "$ORIGINAL_MNESIA"
     chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
     
     log "Starting RabbitMQ server as rabbitmq user..."
@@ -163,15 +164,13 @@ main() {
     set -e
 
     if [ $status -eq 2 ]; then
-        # PATH: ALREADY MIGRATED
-        log "✅ Marker found. Skipping migration logic."
+        log "✅ Skipping migration path."
         setup_rabbitmq_environment
         start_rabbitmq
         ( su -s /bin/bash rabbitmq -c "rabbitmqctl wait --pid 1 --timeout 300" && su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag all" ) &
 
     elif [ $status -eq 0 ]; then
-        # PATH: PERFORM UPGRADE
-        log "✅ Old data found. Starting migration."
+        log "✅ Starting migration path."
         setup_rabbitmq_environment
         determine_mnesia_strategy
         start_rabbitmq
@@ -194,10 +193,7 @@ main() {
         start_rabbitmq
     fi
 
-    # Script stays alive to handle the SIGTERM trap
-    if [ -n "${RABBITMQ_PID:-}" ]; then
-        wait "$RABBITMQ_PID"
-    fi
+    [ -n "${RABBITMQ_PID:-}" ] && wait "$RABBITMQ_PID"
 }
 
 main "$@"
