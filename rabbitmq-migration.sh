@@ -16,7 +16,6 @@ terminate() {
 
 trap 'terminate' SIGTERM
 
-# Global variables
 ORIGINAL_MNESIA="/var/lib/rabbitmq/mnesia"
 SHADOW_BASE="/tmp/rabbitmq_shadow"
 SHADOW_MNESIA="$SHADOW_BASE/mnesia"
@@ -24,68 +23,15 @@ EXISTING_NODE=""
 RABBITMQ_PID=""
 MARKER="/var/lib/rabbitmq/mnesia/rabbitmq@localhost/.migration_complete_4.1"
 
-log() {
-    printf "[%s] [rmq-migration] %s\n" "$(date '+%F %T')" "$*" >&2
-}
-
-die() {
-    printf "[%s] [rmq-migration][ERROR] %s\n" "$(date '+%F %T')" "$*" >&2
-    exit 1
-}
-
-detect_existing_data() {
-    log "=== Detecting existing RabbitMQ data ==="
-
-    if [ -f "$MARKER" ]; then
-        log "✅ Migration marker found - skipping migration"
-        ( sleep 30; su -s /bin/bash rabbitmq -c "rabbitmqctl wait --pid 1 && rabbitmqctl enable_feature_flag all" ) &
-        return 1
-    fi
-
-    if [ -d "$ORIGINAL_MNESIA" ]; then
-        EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbit(mq)?@' | head -n1 || true)
-        if [ -n "$EXISTING_NODE" ]; then
-            log "✅ Found existing data: $EXISTING_NODE - starting migration"
-            return 0
-        fi
-    fi
-
-    log "No existing data - fresh installation"
-    return 1
-}
+log() { printf "[%s] [rmq-migration] %s\n" "$(date '+%F %T')" "$*" >&2; }
+die() { printf "[%s] [rmq-migration][ERROR] %s\n" "$(date '+%F %T')" "$*" >&2; exit 1; }
 
 copy_mnesia_to_shadow() {
     log "=== Implementing copy-on-write strategy ==="
     mkdir -p "$SHADOW_MNESIA"
-    
-    log "Copying mnesia data to shadow directory..."
+    log "Copying data to shadow directory..."
     cp -a "$ORIGINAL_MNESIA"/* "$SHADOW_MNESIA/"
-    
     chown -R rabbitmq:rabbitmq "$SHADOW_BASE"
-}
-
-setup_shadow_environment() {
-    log "=== Setting up environment ==="
-    export HOME="/var/lib/rabbitmq/mnesia/rabbitmq@localhost/shadow_home"
-    mkdir -p "$HOME"
-
-    local shadow_cookie="$HOME/.erlang.cookie"
-    local main_cookie="/var/lib/rabbitmq/.erlang.cookie"
-
-    if [ -s "$main_cookie" ]; then
-        cp "$main_cookie" "$shadow_cookie"
-    elif [ -s "$shadow_cookie" ]; then
-        log "Using existing shadow Erlang cookie"
-    else
-        echo "rabbitmq-cookie-$(date +%s)" > "$shadow_cookie"
-    fi
-
-    chmod 600 "$shadow_cookie"
-    chown -R rabbitmq:rabbitmq "$HOME"
-    
-    local cookie_val="$(cat "$shadow_cookie")"
-    export RABBITMQ_SERVER_ERL_ARGS="-setcookie ${cookie_val}"
-    export RABBITMQ_CTL_ERL_ARGS="-setcookie ${cookie_val}"
 }
 
 determine_mnesia_strategy() {
@@ -94,29 +40,68 @@ determine_mnesia_strategy() {
 
     if [ -n "$EXISTING_NODE" ]; then
         copy_mnesia_to_shadow
-        
-        log "Clearing original EFS directory..."
-        sync
-        sleep 2
-        
+        log "Clearing original EFS contents (Resource-busy safe)..."
+        sync && sleep 2
         if [ -d "$ORIGINAL_MNESIA/$EXISTING_NODE" ]; then
-            find "$ORIGINAL_MNESIA/$EXISTING_NODE" -mindepth 1 -delete || {
-                log "⚠️ Standard delete failed, trying force wipe of contents"
-                rm -rf "$ORIGINAL_MNESIA/$EXISTING_NODE"/* "$ORIGINAL_MNESIA/$EXISTING_NODE"/.[!.]* || true
-            }
+            find "$ORIGINAL_MNESIA/$EXISTING_NODE" -mindepth 1 -delete || rm -rf "$ORIGINAL_MNESIA/$EXISTING_NODE"/*
         fi
-
-        log "Restoring data to EFS with corrected permissions..."
+        log "Restoring data to EFS..."
         cp -RL "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
         rm -rf "$SHADOW_BASE"
-
-        chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
-        log "✅ EFS contents cleaned and data restored"
-    else
-        mkdir -p "$ORIGINAL_MNESIA"
         chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
     fi
     export RABBITMQ_MNESIA_BASE="/var/lib/rabbitmq/mnesia"
+}
+
+setup_shadow_environment() {
+    log "=== Setting up environment ==="
+    export HOME="/var/lib/rabbitmq/mnesia/rabbitmq@localhost/shadow_home"
+    mkdir -p "$HOME"
+    [ -s "/var/lib/rabbitmq/.erlang.cookie" ] && cp "/var/lib/rabbitmq/.erlang.cookie" "$HOME/.erlang.cookie"
+    chmod 600 "$HOME/.erlang.cookie" || true
+    chown -R rabbitmq:rabbitmq "$HOME"
+    local cookie_val="$(cat "$HOME/.erlang.cookie")"
+    export RABBITMQ_SERVER_ERL_ARGS="-setcookie ${cookie_val}"
+    export RABBITMQ_CTL_ERL_ARGS="-setcookie ${cookie_val}"
+}
+
+update_rabbitmq_policies() {
+    log "Updating Policies (Cleaning ha-mode for 4.1 compatibility)..."
+    local vhosts
+    vhosts=$(su -s /bin/bash rabbitmq -c "rabbitmqctl list_vhosts --quiet") || return 1
+    while IFS= read -r vhost; do
+        [ -z "$vhost" ] && continue
+        local policies
+        policies=$(su -s /bin/bash rabbitmq -c "rabbitmqctl list_policies -p '$vhost' --quiet" 2>/dev/null) || continue
+        echo "$policies" | while IFS=$'\t' read -r v_name p_name pattern apply_to definition priority; do
+            if [[ "$definition" == *"ha-mode"* ]] || [[ "$definition" == *"ha-sync-mode"* ]]; then
+                su -s /bin/bash rabbitmq -c "rabbitmqctl clear_policy -p '$vhost' '$p_name'"
+                log "Removed deprecated ha-policy: $p_name from vhost: $vhost"
+            fi
+        done
+    done <<< "$vhosts"
+}
+
+enable_rabbitmq_41_features() {
+    log "=== Enabling RabbitMQ 4.1 Feature Flags ==="
+    su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag all" || {
+        log "⚠️ 'enable all' failed, trying individual stable flags..."
+        local flags=("quorum_queue" "stream_queue" "user_limits" "maintenance_mode_status")
+        for f in "${flags[@]}"; do
+            su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag $f" || true
+        done
+    }
+}
+
+setup_spryker_environment() {
+    log "=== Setting up Spryker vhost permissions ==="
+    local rmq_user="${RABBITMQ_DEFAULT_USER:-spryker}"
+    local vhosts
+    vhosts=$(su -s /bin/bash rabbitmq -c "rabbitmqctl list_vhosts --quiet" 2>/dev/null || echo "/")
+    for vhost in $vhosts; do
+        log "Verifying permissions for user $rmq_user in vhost: $vhost"
+        su -s /bin/bash rabbitmq -c "rabbitmqctl set_permissions -p '$vhost' '$rmq_user' '.*' '.*' '.*'" || true
+    done
 }
 
 start_rabbitmq() {
@@ -129,38 +114,44 @@ main() {
     if [ -d /var/lib/rabbitmq/mnesia/mnesia ]; then
         log "Repairing nested mnesia structure..."
         chown -R rabbitmq:rabbitmq /var/lib/rabbitmq/mnesia/mnesia 2>/dev/null || true
-        cp -a /var/lib/rabbitmq/mnesia/mnesia/. /var/lib/rabbitmq/mnesia/
-        rm -rf /var/lib/rabbitmq/mnesia/mnesia
+        cp -a /var/lib/rabbitmq/mnesia/mnesia/. /var/lib/rabbitmq/mnesia/ && rm -rf /var/lib/rabbitmq/mnesia/mnesia
     fi
 
-    if ! detect_existing_data; then
+    if [ -f "$MARKER" ]; then
+        # PATH 1: Already migrated
+        log "✅ Marker found - Fast-path boot"
         setup_shadow_environment
         start_rabbitmq
-    else
+        ( sleep 30; su -s /bin/bash rabbitmq -c "rabbitmqctl wait --pid 1 && rabbitmqctl enable_feature_flag all" ) &
+    elif [ -d "$ORIGINAL_MNESIA" ] && ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -qE '^rabbit(mq)?@'; then
+
+        # PATH 2: Migration Required
+        log "✅ Old data found - Starting full migration process"
         setup_shadow_environment
         determine_mnesia_strategy
         start_rabbitmq
         
         log "Waiting for RabbitMQ to stabilize..."
         for i in $(seq 1 600); do
-            if su -s /bin/bash rabbitmq -c "rabbitmqctl status" >/dev/null 2>&1; then
-                log "✅ RabbitMQ 4.1 is up!"
-                break
-            fi
+            if su -s /bin/bash rabbitmq -c "rabbitmqctl status" >/dev/null 2>&1; then break; fi
             sleep 1
         done
 
         su -s /bin/bash rabbitmq -c "rabbitmq-plugins enable rabbitmq_management" || true
-        su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag all" || true
+        enable_rabbitmq_41_features
+        update_rabbitmq_policies
+        setup_spryker_environment
         
-        touch "$MARKER"
-        chown rabbitmq:rabbitmq "$MARKER"
+        touch "$MARKER" && chown rabbitmq:rabbitmq "$MARKER"
         log "✅ Migration Successful!"
+    else
+        # PATH 3: Fresh Install
+        log "No existing data - Fresh installation"
+        setup_shadow_environment
+        start_rabbitmq
     fi
 
-    if [ -n "${RABBITMQ_PID:-}" ]; then
-        wait "$RABBITMQ_PID"
-    fi
+    [ -n "${RABBITMQ_PID:-}" ] && wait "$RABBITMQ_PID"
 }
 
 main "$@"
