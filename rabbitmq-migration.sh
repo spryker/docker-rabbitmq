@@ -30,12 +30,10 @@ die() { printf "[%s] [rmq-migration][ERROR] %s\n" "$(date '+%F %T')" "$*" >&2; e
 
 detect_existing_data() {
     log "=== Detecting existing RabbitMQ data ==="
-
     if [ -f "$MARKER" ]; then
         log "✅ Marker found - Migration already completed."
         return 2
     fi
-
     if [ -d "$ORIGINAL_MNESIA" ]; then
         EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbit(mq)?@' | head -n1 || true)
         if [ -n "$EXISTING_NODE" ]; then
@@ -43,7 +41,6 @@ detect_existing_data() {
             return 0
         fi
     fi
-
     log "No existing data - Fresh installation."
     return 1
 }
@@ -56,22 +53,19 @@ determine_mnesia_strategy() {
         cp -a "$ORIGINAL_MNESIA"/* "$SHADOW_MNESIA/"
         chown -R rabbitmq:rabbitmq "$SHADOW_BASE"
 
-        log "Clearing original EFS contents (Surgical)..."
+        log "Clearing original EFS contents (Surgical fix for busy mounts)..."
         sync && sleep 2
         rm -rf "$ORIGINAL_MNESIA"/*
         
         log "Restoring upgraded data to EFS..."
         cp -a "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
         rm -rf "$SHADOW_BASE"
-        log "✅ Data restored and standardized on EFS"
-    else
-        mkdir -p "$ORIGINAL_MNESIA"
+        log "✅ EFS volume restored and standardized."
     fi
 }
 
 setup_rabbitmq_environment() {
     log "=== Setting up environment ==="
-    
     local rmq_home="/var/lib/rabbitmq"
     local main_cookie="$rmq_home/.erlang.cookie"
     
@@ -94,12 +88,12 @@ setup_rabbitmq_environment() {
 
 
 start_rabbitmq() {
-    log "Ensuring EFS mnesia directory exists and has correct permissions..."
+    log "Ensuring EFS permissions for rabbitmq user..."
     mkdir -p "$ORIGINAL_MNESIA"
     chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
     
     log "Starting RabbitMQ server as rabbitmq user..."
-    su -s /bin/bash rabbitmq -c "rabbitmq-server" &
+    su -s /bin/bash rabbitmq -c "rabbitmq-server" > /dev/null 2>&1 &
     RABBITMQ_PID=$!
 }
 
@@ -115,6 +109,17 @@ wait_for_rabbitmq() {
         sleep 1
     done
     die "❌ RabbitMQ failed to start within $timeout seconds"
+}
+
+count_messages_in_queues() {
+    log "=== Counting Messages in All Queues ==="
+    local vhosts
+    vhosts=$(su -s /bin/bash rabbitmq -c "rabbitmqctl list_vhosts --quiet") || return 1
+    while IFS= read -r vhost; do
+        [ -z "$vhost" ] && continue
+        log "Vhost '$vhost' message count:"
+        su -s /bin/bash rabbitmq -c "rabbitmqctl list_queues -p '$vhost' name messages" || true
+    done <<< "$vhosts"
 }
 
 update_rabbitmq_policies() {
@@ -135,23 +140,18 @@ update_rabbitmq_policies() {
 }
 
 setup_spryker_permissions() {
-    log "=== Setting up Spryker permissions ==="
+    log "=== Verifying Spryker Vhost Permissions ==="
     local rmq_user="${RABBITMQ_DEFAULT_USER:-spryker}"
     local vhosts
     vhosts=$(su -s /bin/bash rabbitmq -c "rabbitmqctl list_vhosts --quiet" 2>/dev/null || echo "/")
     for vhost in $vhosts; do
-        log "Assigning permissions to $rmq_user in vhost: $vhost"
+        log "Checking permissions for $rmq_user in vhost: $vhost"
         su -s /bin/bash rabbitmq -c "rabbitmqctl set_permissions -p '$vhost' '$rmq_user' '.*' '.*' '.*'" || true
     done
 }
 
-count_messages() {
-    log "=== Current Message Counts ==="
-    su -s /bin/bash rabbitmq -c "rabbitmqctl list_queues name messages" || true
-}
 
 main() {
-    # Fix nested mnesia structures
     if [ -d /var/lib/rabbitmq/mnesia/mnesia ]; then
         log "Repairing nested mnesia structure..."
         chown -R rabbitmq:rabbitmq /var/lib/rabbitmq/mnesia/mnesia 2>/dev/null || true
@@ -164,12 +164,14 @@ main() {
     set -e
 
     if [ $status -eq 2 ]; then
-        log "✅ Skipping migration path."
+        # PATH 1: ALREADY MIGRATED
+        log "✅ Skipping migration logic."
         setup_rabbitmq_environment
         start_rabbitmq
-        ( su -s /bin/bash rabbitmq -c "rabbitmqctl wait --pid 1 --timeout 300" && su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag all" ) &
+        ( su -s /bin/bash rabbitmq -c "rabbitmqctl wait --pid 1 --timeout 300 && rabbitmqctl enable_feature_flag all" ) &
 
     elif [ $status -eq 0 ]; then
+        # PATH 2: PERFORM UPGRADE
         log "✅ Starting migration path."
         setup_rabbitmq_environment
         determine_mnesia_strategy
@@ -177,23 +179,27 @@ main() {
         
         wait_for_rabbitmq
         
+        log "📊 Status check before final configuration..."
+        count_messages_in_queues
+        
         su -s /bin/bash rabbitmq -c "rabbitmq-plugins enable rabbitmq_management" || true
         su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag all" || true
         update_rabbitmq_policies
         setup_spryker_permissions
-        count_messages
         
         touch "$MARKER" && chown rabbitmq:rabbitmq "$MARKER"
         log "✅ Migration Successful!"
 
     else
-        # PATH: FRESH INSTALL
-        log "✅ No data found. Fresh install path."
+        # PATH 3: FRESH INSTALL
+        log "✅ Fresh install path."
         setup_rabbitmq_environment
         start_rabbitmq
     fi
 
-    [ -n "${RABBITMQ_PID:-}" ] && wait "$RABBITMQ_PID"
+    if [ -n "${RABBITMQ_PID:-}" ]; then
+        wait "$RABBITMQ_PID"
+    fi
 }
 
 main "$@"
