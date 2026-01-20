@@ -1,12 +1,12 @@
 #!/bin/bash
 # RabbitMQ 3.13 → 4.1 Complete Production Migration Script
-# Optimized for EFS persistence, Graceful Shutdown, 4.1 migration marker
+# Optimized for EFS persistence, Graceful Shutdown
 
 set -euo pipefail
 
 set -m
 
-# Function to handle SIGTERM
+# Function to handle SIGTERM from AWS
 terminate() {
     echo >&2 "Caught SIGTERM, forwarding to children..."
     rabbitmqctl stop
@@ -89,23 +89,27 @@ copy_mnesia_to_shadow() {
 
     log "Copying mnesia data to shadow directory..."
 
+    # Use 'cp -RLp' instead of '-a' to avoid 'Operation not permitted' ownership errors on EFS
     for item in "$source_mnesia"/*; do
         local basename=$(basename "$item")
         if [[ "$basename" =~ ^aws-backup- ]]; then
             continue
         fi
 
-        if ! cp -a "$item" "$shadow_mnesia/" 2>&1; then
-            log "⚠️ Warning: Failed to copy $basename"
+        log "Copying $basename..."
+        if ! cp -RLp "$item" "$shadow_mnesia/" 2>&1; then
+            log "⚠️ Note: Non-fatal ownership warning for $basename"
         fi
     done
+
+    log "Adjusting shadow directory ownership..."
+    chown -R "$(id -u):$(id -g)" "$shadow_mnesia" 2>/dev/null || true
 
     if [ ! -d "$shadow_mnesia/$EXISTING_NODE" ]; then
         die "❌ Failed to copy node directory: $EXISTING_NODE"
     fi
 
     log "✅ Data copied successfully to /tmp"
-    chown -R rabbitmq:rabbitmq "$shadow_mnesia" 2>&1 || true
     cleanup_shadow_files "$shadow_mnesia"
 }
 
@@ -118,7 +122,6 @@ cleanup_shadow_files() {
 
 setup_shadow_environment() {
     log "=== Setting up environment ==="
-
     export HOME="/var/lib/rabbitmq/mnesia/rabbitmq@localhost/shadow_home"
     mkdir -p "$HOME"
 
@@ -155,7 +158,7 @@ determine_mnesia_strategy() {
         rm -rf "$ORIGINAL_MNESIA/"*
 
         log "Restoring data to EFS and cleaning up /tmp..."
-        cp -a "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
+        cp -RLp "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
         rm -rf "$SHADOW_BASE"
 
         chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
@@ -170,7 +173,6 @@ determine_mnesia_strategy() {
 
 start_rabbitmq() {
     epmd -kill >/dev/null 2>&1 || true
-
     log "Starting RabbitMQ server..."
     rabbitmq-server &
     RABBITMQ_PID=$!
@@ -179,7 +181,6 @@ start_rabbitmq() {
 
 wait_for_rabbitmq() {
     log "=== Waiting for RabbitMQ ready status ==="
-    # High timeout for slow EFS storage
     for i in $(seq 1 60000); do
         if rabbitmqctl status >/dev/null 2>&1; then
             log "✅ RabbitMQ 4.1 is fully operational!"
@@ -258,10 +259,10 @@ print_completion_message() {
 }
 
 main() {
-    # Auto-repair nested mnesia directories if they exist from previous failed attempts
+    # Auto-repair nested mnesia directories
     if [ -d /var/lib/rabbitmq/mnesia/mnesia ]; then
         log "Repairing nested mnesia structure..."
-        cp -a /var/lib/rabbitmq/mnesia/mnesia/. /var/lib/rabbitmq/mnesia/
+        cp -RLp /var/lib/rabbitmq/mnesia/mnesia/. /var/lib/rabbitmq/mnesia/
         rm -rf /var/lib/rabbitmq/mnesia/mnesia
     fi
 
