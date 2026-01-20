@@ -105,12 +105,11 @@ setup_spryker_environment() {
     done
 }
 
-count_messages() {
-    log "=== Current Message Counts ==="
-    su -s /bin/bash rabbitmq -c "rabbitmqctl list_queues name messages" || true
-}
 
 start_rabbitmq() {
+    log "Ensuring EFS permissions for rabbitmq user..."
+    chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
+    
     log "Starting RabbitMQ server as rabbitmq user..."
     su -s /bin/bash rabbitmq -c "rabbitmq-server" &
     RABBITMQ_PID=$!
