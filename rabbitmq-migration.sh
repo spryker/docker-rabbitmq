@@ -3,10 +3,8 @@
 # Optimized for EFS persistence, Graceful Shutdown, EFS file ownership
 
 set -euo pipefail
-
 set -m
 
-# Function to handle SIGTERM
 terminate() {
     log "Caught SIGTERM, forwarding to children..."
     su -s /bin/bash rabbitmq -c "rabbitmqctl stop"
@@ -64,7 +62,6 @@ copy_mnesia_to_shadow() {
     cp -a "$ORIGINAL_MNESIA"/* "$SHADOW_MNESIA/"
     
     chown -R rabbitmq:rabbitmq "$SHADOW_BASE"
-    log "✅ Data copied and ownership set to rabbitmq"
 }
 
 setup_shadow_environment() {
@@ -93,6 +90,7 @@ setup_shadow_environment() {
 
 determine_mnesia_strategy() {
     log "=== Preparing migration strategy ==="
+    EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbit(mq)?@' | head -n1 || true)
 
     if [ -n "$EXISTING_NODE" ]; then
         copy_mnesia_to_shadow
@@ -100,12 +98,12 @@ determine_mnesia_strategy() {
         log "Clearing original EFS directory..."
         rm -rf "$ORIGINAL_MNESIA/"*
 
-        log "Restoring data to EFS..."
+        log "Restoring data to EFS with corrected permissions..."
         cp -a "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
         rm -rf "$SHADOW_BASE"
 
         chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
-        log "✅ EFS cleaned and data restored with correct ownership"
+        log "✅ Data restored and standardized to rabbitmq:rabbitmq"
     else
         mkdir -p "$ORIGINAL_MNESIA"
         chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
@@ -122,6 +120,7 @@ start_rabbitmq() {
 main() {
     if [ -d /var/lib/rabbitmq/mnesia/mnesia ]; then
         log "Repairing nested mnesia structure..."
+        chown -R rabbitmq:rabbitmq /var/lib/rabbitmq/mnesia/mnesia 2>/dev/null || true
         cp -a /var/lib/rabbitmq/mnesia/mnesia/. /var/lib/rabbitmq/mnesia/
         rm -rf /var/lib/rabbitmq/mnesia/mnesia
     fi
