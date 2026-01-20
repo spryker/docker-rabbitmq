@@ -62,7 +62,9 @@ determine_mnesia_strategy() {
 
         log "Clearing original EFS contents (Resource-busy safe)..."
         sync && sleep 2
-        rm -rf "$ORIGINAL_MNESIA/"* log "Restoring upgraded data to EFS..."
+        rm -rf "$ORIGINAL_MNESIA"/*
+        
+        log "Restoring upgraded data to EFS..."
         cp -a "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
         rm -rf "$SHADOW_BASE"
         log "✅ Data restored to EFS"
@@ -84,16 +86,17 @@ setup_shadow_environment() {
         cp "$main_cookie" "$shadow_cookie"
     elif [ ! -s "$shadow_cookie" ]; then
         log "Generating new Erlang cookie..."
-        tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 32 | head -n 1 > "$shadow_cookie"
+        COOKIE_VAL=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 32 || true)
+        echo "$COOKIE_VAL" > "$shadow_cookie"
     fi
 
     chmod 600 "$shadow_cookie"
     chown rabbitmq:rabbitmq "$shadow_cookie"
     chown -R rabbitmq:rabbitmq "$HOME"
     
-    local cookie_val="$(cat "$shadow_cookie")"
-    export RABBITMQ_SERVER_ERL_ARGS="-setcookie ${cookie_val}"
-    export RABBITMQ_CTL_ERL_ARGS="-setcookie ${cookie_val}"
+    local final_cookie="$(cat "$shadow_cookie")"
+    export RABBITMQ_SERVER_ERL_ARGS="-setcookie ${final_cookie}"
+    export RABBITMQ_CTL_ERL_ARGS="-setcookie ${final_cookie}"
 }
 
 wait_for_rabbitmq() {
@@ -138,7 +141,7 @@ setup_spryker_environment() {
     local vhosts
     vhosts=$(su -s /bin/bash rabbitmq -c "rabbitmqctl list_vhosts --quiet" 2>/dev/null || echo "/")
     for vhost in $vhosts; do
-        su -s /bin/bash rabbitmq -c "rabbitmqctl set_permissions -p '$vhost' '$rmq_user' '.*' '.*' '.*'" || true
+        su -s /bin/bash rabbitmq -c "rabbitmqctl set_permissions -p "$vhost" "$rmq_user" ".*" ".*" ".*"" || true
     done
 }
 
@@ -146,7 +149,6 @@ count_messages_in_queues() {
     log "=== Counting Messages in Queues ==="
     su -s /bin/bash rabbitmq -c "rabbitmqctl list_queues name messages" || true
 }
-
 
 start_rabbitmq() {
     log "Ensuring EFS permissions for rabbitmq user..."
@@ -170,14 +172,12 @@ main() {
     set -e
 
     if [ $status -eq 2 ]; then
-        # PATH: SKIP MIGRATION
         log "✅ Skipping migration path."
         setup_shadow_environment
         start_rabbitmq
         ( su -s /bin/bash rabbitmq -c "rabbitmqctl wait --pid 1 --timeout 300" && su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag all" ) &
 
     elif [ $status -eq 0 ]; then
-        # PATH: PERFORM MIGRATION
         log "✅ Starting migration path."
         setup_shadow_environment
         determine_mnesia_strategy
@@ -197,7 +197,6 @@ main() {
         log "✅ Migration Successful!"
 
     else
-        # PATH: FRESH INSTALL
         log "✅ Fresh install path."
         setup_shadow_environment
         start_rabbitmq
