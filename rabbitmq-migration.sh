@@ -96,14 +96,22 @@ determine_mnesia_strategy() {
         copy_mnesia_to_shadow
         
         log "Clearing original EFS directory..."
-        rm -rf "$ORIGINAL_MNESIA/"*
+        sync
+        sleep 2
+        
+        if [ -d "$ORIGINAL_MNESIA/$EXISTING_NODE" ]; then
+            find "$ORIGINAL_MNESIA/$EXISTING_NODE" -mindepth 1 -delete || {
+                log "⚠️ Standard delete failed, trying force wipe of contents"
+                rm -rf "$ORIGINAL_MNESIA/$EXISTING_NODE"/* "$ORIGINAL_MNESIA/$EXISTING_NODE"/.[!.]* || true
+            }
+        fi
 
         log "Restoring data to EFS with corrected permissions..."
-        cp -a "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
+        cp -RL "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
         rm -rf "$SHADOW_BASE"
 
         chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
-        log "✅ Data restored and standardized to rabbitmq:rabbitmq"
+        log "✅ EFS contents cleaned and data restored"
     else
         mkdir -p "$ORIGINAL_MNESIA"
         chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
