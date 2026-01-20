@@ -29,7 +29,7 @@ die() { printf "[%s] [rmq-migration][ERROR] %s\n" "$(date '+%F %T')" "$*" >&2; e
 copy_mnesia_to_shadow() {
     log "=== Implementing copy-on-write strategy ==="
     mkdir -p "$SHADOW_MNESIA"
-    log "Copying data to shadow directory..."
+    log "Copying data to local /tmp for upgrade..."
     cp -a "$ORIGINAL_MNESIA"/* "$SHADOW_MNESIA/"
     chown -R rabbitmq:rabbitmq "$SHADOW_BASE"
 }
@@ -45,10 +45,11 @@ determine_mnesia_strategy() {
         if [ -d "$ORIGINAL_MNESIA/$EXISTING_NODE" ]; then
             find "$ORIGINAL_MNESIA/$EXISTING_NODE" -mindepth 1 -delete || rm -rf "$ORIGINAL_MNESIA/$EXISTING_NODE"/*
         fi
-        log "Restoring data to EFS..."
+        log "Restoring upgraded data to EFS..."
         cp -RL "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
         rm -rf "$SHADOW_BASE"
         chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
+        log "✅ EFS volume standardized to rabbitmq:rabbitmq"
     fi
     export RABBITMQ_MNESIA_BASE="/var/lib/rabbitmq/mnesia"
 }
@@ -73,7 +74,7 @@ update_rabbitmq_policies() {
         [ -z "$vhost" ] && continue
         local policies
         policies=$(su -s /bin/bash rabbitmq -c "rabbitmqctl list_policies -p '$vhost' --quiet" 2>/dev/null) || continue
-        echo "$policies" | while IFS=$'\t' read -r v_name p_name pattern apply_to definition priority; do
+        echo "$policies" | while IFS=$'\t' read -r vhost_name p_name pattern apply_to definition priority; do
             if [[ "$definition" == *"ha-mode"* ]] || [[ "$definition" == *"ha-sync-mode"* ]]; then
                 su -s /bin/bash rabbitmq -c "rabbitmqctl clear_policy -p '$vhost' '$p_name'"
                 log "Removed deprecated ha-policy: $p_name from vhost: $vhost"
@@ -104,6 +105,11 @@ setup_spryker_environment() {
     done
 }
 
+count_messages() {
+    log "=== Current Message Counts ==="
+    su -s /bin/bash rabbitmq -c "rabbitmqctl list_queues name messages" || true
+}
+
 start_rabbitmq() {
     log "Starting RabbitMQ server as rabbitmq user..."
     su -s /bin/bash rabbitmq -c "rabbitmq-server" &
@@ -118,40 +124,45 @@ main() {
     fi
 
     if [ -f "$MARKER" ]; then
-        # PATH 1: Already migrated
-        log "✅ Marker found - Fast-path boot"
+        # 1. SKIP PATH (Marker found)
+        log "✅ Marker found - Skipping migration logic"
         setup_shadow_environment
         start_rabbitmq
-        ( sleep 30; su -s /bin/bash rabbitmq -c "rabbitmqctl wait --pid 1 && rabbitmqctl enable_feature_flag all" ) &
-    elif [ -d "$ORIGINAL_MNESIA" ] && ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -qE '^rabbit(mq)?@'; then
+        ( su -s /bin/bash rabbitmq -c "rabbitmqctl wait --pid 1 --timeout 300" && su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag all" ) &
 
-        # PATH 2: Migration Required
+    elif [ -d "$ORIGINAL_MNESIA" ] && ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -qE '^rabbit(mq)?@'; then
+        # 2. MIGRATION PATH (Data found)
         log "✅ Old data found - Starting full migration process"
         setup_shadow_environment
         determine_mnesia_strategy
         start_rabbitmq
         
-        log "Waiting for RabbitMQ to stabilize..."
-        for i in $(seq 1 600); do
-            if su -s /bin/bash rabbitmq -c "rabbitmqctl status" >/dev/null 2>&1; then break; fi
-            sleep 1
-        done
+        log "Waiting for RabbitMQ application (rabbit) to initialize and convert data..."
+        if su -s /bin/bash rabbitmq -c "rabbitmqctl wait --pid 1 --timeout 600"; then
+            log "✅ RabbitMQ 4.1 is fully operational!"
+        else
+            die "❌ RabbitMQ application failed to start within 10 minutes"
+        fi
 
         su -s /bin/bash rabbitmq -c "rabbitmq-plugins enable rabbitmq_management" || true
         enable_rabbitmq_41_features
         update_rabbitmq_policies
         setup_spryker_environment
+        count_messages
         
         touch "$MARKER" && chown rabbitmq:rabbitmq "$MARKER"
         log "✅ Migration Successful!"
+
     else
-        # PATH 3: Fresh Install
+        # 3. FRESH INSTALL PATH
         log "No existing data - Fresh installation"
         setup_shadow_environment
         start_rabbitmq
     fi
 
-    [ -n "${RABBITMQ_PID:-}" ] && wait "$RABBITMQ_PID"
+    if [ -n "${RABBITMQ_PID:-}" ]; then
+        wait "$RABBITMQ_PID"
+    fi
 }
 
 main "$@"
