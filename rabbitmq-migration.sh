@@ -49,7 +49,7 @@ determine_mnesia_strategy() {
         cp -RL "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/"
         rm -rf "$SHADOW_BASE"
         chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
-        log "✅ EFS volume standardized to rabbitmq:rabbitmq"
+        log "✅ Data migration to EFS complete"
     fi
     export RABBITMQ_MNESIA_BASE="/var/lib/rabbitmq/mnesia"
 }
@@ -58,12 +58,29 @@ setup_shadow_environment() {
     log "=== Setting up environment ==="
     export HOME="/var/lib/rabbitmq/mnesia/rabbitmq@localhost/shadow_home"
     mkdir -p "$HOME"
-    [ -s "/var/lib/rabbitmq/.erlang.cookie" ] && cp "/var/lib/rabbitmq/.erlang.cookie" "$HOME/.erlang.cookie"
-    chmod 600 "$HOME/.erlang.cookie" || true
+    
+    local shadow_cookie="$HOME/.erlang.cookie"
+    local main_cookie="/var/lib/rabbitmq/.erlang.cookie"
+
+    if [ -s "$main_cookie" ]; then
+        log "Copying existing cookie to shadow home..."
+        cp "$main_cookie" "$shadow_cookie"
+    elif [ ! -s "$shadow_cookie" ]; then
+        log "No cookie found - generating new Erlang cookie..."
+        tr -dc 'a-zA-Z0-9' < /dev/urandom | fold -w 32 | head -n 1 > "$shadow_cookie"
+    fi
+
+    if [ -f "$shadow_cookie" ]; then
+        chmod 600 "$shadow_cookie"
+        chown rabbitmq:rabbitmq "$shadow_cookie"
+        local cookie_val="$(cat "$shadow_cookie")"
+        export RABBITMQ_SERVER_ERL_ARGS="-setcookie ${cookie_val}"
+        export RABBITMQ_CTL_ERL_ARGS="-setcookie ${cookie_val}"
+    else
+        die "Erlang cookie missing after setup"
+    fi
+    
     chown -R rabbitmq:rabbitmq "$HOME"
-    local cookie_val="$(cat "$HOME/.erlang.cookie")"
-    export RABBITMQ_SERVER_ERL_ARGS="-setcookie ${cookie_val}"
-    export RABBITMQ_CTL_ERL_ARGS="-setcookie ${cookie_val}"
 }
 
 update_rabbitmq_policies() {
@@ -85,13 +102,7 @@ update_rabbitmq_policies() {
 
 enable_rabbitmq_41_features() {
     log "=== Enabling RabbitMQ 4.1 Feature Flags ==="
-    su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag all" || {
-        log "⚠️ 'enable all' failed, trying individual stable flags..."
-        local flags=("quorum_queue" "stream_queue" "user_limits" "maintenance_mode_status")
-        for f in "${flags[@]}"; do
-            su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag $f" || true
-        done
-    }
+    su -s /bin/bash rabbitmq -c "rabbitmqctl enable_feature_flag all" || true
 }
 
 setup_spryker_environment() {
@@ -110,7 +121,11 @@ count_messages() {
     su -s /bin/bash rabbitmq -c "rabbitmqctl list_queues name messages" || true
 }
 
+
 start_rabbitmq() {
+    log "Ensuring EFS permissions for rabbitmq user..."
+    chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA"
+    
     log "Starting RabbitMQ server as rabbitmq user..."
     su -s /bin/bash rabbitmq -c "rabbitmq-server" &
     RABBITMQ_PID=$!
