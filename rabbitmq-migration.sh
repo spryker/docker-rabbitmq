@@ -196,13 +196,12 @@ determine_mnesia_strategy() {
         log "Backing up data to shadow directory..."
         copy_mnesia_to_shadow "$ORIGINAL_MNESIA" "$SHADOW_MNESIA"
 
-        log "Clearing node directory in original to prevent conflicts..."
+        log "Clearing node directory contents in original to prevent conflicts..."
         if [ -d "$ORIGINAL_MNESIA/$EXISTING_NODE" ]; then
-            log "Removing old node directory: $ORIGINAL_MNESIA/$EXISTING_NODE"
-            rm -rf "$ORIGINAL_MNESIA/$EXISTING_NODE" || {
-                die "❌ Failed to remove old node directory!"
-            }
-            log "✅ Old node directory cleared"
+            log "Removing contents of old node directory: $ORIGINAL_MNESIA/$EXISTING_NODE"
+            rm -rf "$ORIGINAL_MNESIA/$EXISTING_NODE"/* 2>/dev/null || true
+            rm -rf "$ORIGINAL_MNESIA/$EXISTING_NODE"/.[!.]* 2>/dev/null || true
+            log "✅ Old node directory contents cleared"
         fi
 
         log "Creating working copy from shadow to original..."
@@ -238,7 +237,6 @@ determine_mnesia_strategy() {
 
     # Ensure RabbitMQ uses the original mnesia directory
     export RABBITMQ_MNESIA_BASE="/var/lib/rabbitmq/mnesia"
-    export USING_SHADOW=false
 
     log "✅ RabbitMQ will use: $ORIGINAL_MNESIA"
 }
@@ -540,46 +538,6 @@ setup_spryker_environment() {
     done
 
     log "✅ Spryker environment setup complete"
-}
-
-sync_shadow_to_original() {
-    log "=== Syncing migrated data from shadow to original ==="
-
-    if [ "$USING_SHADOW" != "true" ]; then
-        log "Not using shadow, skipping sync"
-        return 0
-    fi
-
-    if [ ! -d "$SHADOW_MNESIA" ]; then
-        log "⚠️ Shadow directory doesn't exist, skipping sync"
-        return 0
-    fi
-
-    log "📁 Shadow is no longer in use, safe to copy without stopping RabbitMQ"
-
-    log "Copying shadow → original..."
-    mkdir -p "$(dirname "$ORIGINAL_MNESIA")"
-    cp -a "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/" || {
-        log "❌ Failed to copy shadow to original!"
-        return 1
-    }
-    
-    log "Cleaning up old files from original..."
-    for item in "$ORIGINAL_MNESIA"/*; do
-        local basename=$(basename "$item")
-        if [ ! -e "$SHADOW_MNESIA/$basename" ] && [[ ! "$basename" =~ ^aws-backup- ]]; then
-            rm -rf "$item" 2>/dev/null || {
-                log "⚠️ Could not remove old file: $basename"
-            }
-        fi
-    done
-    
-    rm -rf /tmp/rabbitmq_shadow
-
-    log "Setting proper ownership..."
-    chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || true
-
-    log "✅ Shadow successfully synced to original"
 }
 
 print_completion_message() {
