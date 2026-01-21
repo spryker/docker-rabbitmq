@@ -57,6 +57,7 @@ setup_erlang_cookie() {
         log "✅ Cookie migrated to: $PERSISTENT_COOKIE"
     else
         log "No existing cookie found - creating new one"
+        mkdir -p "$(dirname "$PERSISTENT_COOKIE")"
         echo "rabbitmq-cookie-$(date +%s)" > "$PERSISTENT_COOKIE"
         chmod 600 "$PERSISTENT_COOKIE"
         chown rabbitmq:rabbitmq "$PERSISTENT_COOKIE" 2>/dev/null || true
@@ -617,7 +618,28 @@ main() {
         RABBITMQ_PID=$!
         
         log "RabbitMQ started with PID: $RABBITMQ_PID"
-        log "Waiting for RabbitMQ to start or fail..."
+        log "Waiting for RabbitMQ to become ready..."
+        
+        # Wait for RabbitMQ to be ready
+        for i in $(seq 1 60); do
+            if rabbitmqctl status >/dev/null 2>&1; then
+                log "✅ RabbitMQ is ready!"
+                
+                # Enable all feature flags
+                log "=== Enabling all RabbitMQ 4.1 feature flags ==="
+                enable_rabbitmq_41_features
+                
+                log "✅ Feature flags enabled, RabbitMQ is fully operational"
+                break
+            fi
+            
+            if [ $i -eq 60 ]; then
+                log "⚠️ RabbitMQ did not become ready within 60 seconds"
+                log "Continuing without enabling feature flags"
+            fi
+            
+            sleep 1
+        done
         
         wait "$RABBITMQ_PID"
         RABBITMQ_EXIT=$?
