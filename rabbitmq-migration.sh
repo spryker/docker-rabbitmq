@@ -559,6 +559,9 @@ print_completion_message() {
 }
 
 main() {
+    # Force output to be unbuffered
+    export PYTHONUNBUFFERED=1
+    
     setup_erlang_cookie
     
     detect_existing_data
@@ -566,7 +569,6 @@ main() {
     
     if [ $detect_result -eq 2 ]; then
         log "Starting RabbitMQ (migration already complete)..."
-        log "Using exec to replace shell process - container will stay alive with RabbitMQ as PID 1"
         log "Cookie location: $PERSISTENT_COOKIE"
         log "System cookie location: $SYSTEM_COOKIE"
         log "Mnesia directory: $ORIGINAL_MNESIA"
@@ -581,8 +583,9 @@ main() {
         
         # List what's in the mnesia node directory for debugging
         if [ -d "$ORIGINAL_MNESIA/rabbitmq@localhost" ]; then
-            log "Node directory exists, contents:"
-            ls -la "$ORIGINAL_MNESIA/rabbitmq@localhost" 2>&1 | head -20 | while read line; do log "$line"; done
+            log "Node directory exists"
+            log "First 10 files in node directory:"
+            ls -la "$ORIGINAL_MNESIA/rabbitmq@localhost" 2>&1 | head -10 >&2
         else
             log "⚠️ WARNING: Node directory does not exist!"
         fi
@@ -591,7 +594,7 @@ main() {
         if [ -f "$MIGRATION_MARKER" ]; then
             log "✅ Migration marker exists: $MIGRATION_MARKER"
         else
-            log "⚠️ WARNING: Migration marker does not exist (but detect_existing_data returned 2)"
+            log "⚠️ WARNING: Migration marker does not exist"
         fi
         
         # Clean up any leftover shadow_home before starting
@@ -600,20 +603,39 @@ main() {
             rm -rf "$ORIGINAL_MNESIA/rabbitmq@localhost/shadow_home" 2>/dev/null || true
         fi
         
-        log "Fixing ownership of all mnesia files before starting RabbitMQ..."
-        chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || {
-            log "⚠️ Could not change ownership (might be running as non-root in CI/CD)"
+        log "Fixing ownership of all mnesia files..."
+        chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>&1 || {
+            log "⚠️ Could not change ownership"
         }
         
-        # Verify permissions
-        log "Mnesia directory permissions:"
-        ls -ld "$ORIGINAL_MNESIA" "$ORIGINAL_MNESIA/rabbitmq@localhost" 2>&1 | while read line; do log "$line"; done
+        log "Verifying permissions after chown:"
+        ls -ld "$ORIGINAL_MNESIA/rabbitmq@localhost" 2>&1 >&2
         
-        log "Starting RabbitMQ now with output redirection..."
+        log "Starting RabbitMQ in foreground to capture output..."
         log "==========================================="
         
-        # Use exec with output redirection to see errors
-        exec rabbitmq-server 2>&1
+        rabbitmq-server 2>&1 &
+        RABBITMQ_PID=$!
+        
+        log "RabbitMQ started with PID: $RABBITMQ_PID"
+        log "Waiting for RabbitMQ to start or fail..."
+        
+        wait "$RABBITMQ_PID"
+        RABBITMQ_EXIT=$?
+        
+        log "❌ RabbitMQ exited with code: $RABBITMQ_EXIT"
+        
+        if [ -f "/var/log/rabbitmq/rabbit@localhost.log" ]; then
+            log "Last 50 lines of RabbitMQ log:"
+            tail -50 /var/log/rabbitmq/rabbit@localhost.log 2>&1 >&2
+        fi
+        
+        if [ -f "$ORIGINAL_MNESIA/rabbitmq@localhost/LATEST.LOG" ]; then
+            log "Last 50 lines of LATEST.LOG:"
+            tail -50 "$ORIGINAL_MNESIA/rabbitmq@localhost/LATEST.LOG" 2>&1 >&2
+        fi
+        
+        exit $RABBITMQ_EXIT
     elif [ $detect_result -eq 1 ]; then
         log "Starting fresh RabbitMQ installation..."
         log "Using exec to replace shell process"
