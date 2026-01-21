@@ -101,17 +101,6 @@ jobs:
             tag: "spryker/rabbitmq:4.1-shovel"
             platforms: "linux/amd64,linux/arm64"
 
-          # RabbitMQ 4.1-hotfix variants
-          - image: "4.1-hotfix/Dockerfile"
-            tag: "spryker/rabbitmq:4.1-hotfix"
-            platforms: "linux/amd64,linux/arm64"
-          - image: "4.1-hotfix/amqp1/Dockerfile"
-            tag: "spryker/rabbitmq:4.1-hotfix-amqp1"
-            platforms: "linux/amd64,linux/arm64"
-          - image: "4.1-hotfix/shovel/Dockerfile"
-            tag: "spryker/rabbitmq:4.1-hotfix-shovel"
-            platforms: "linux/amd64,linux/arm64"
-
     name: Build and Scan - ${{ matrix.tag }}
     uses: spryker-projects/gha-reusable-workflows/.github/workflows/ci.yml@main
     with:
