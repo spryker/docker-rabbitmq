@@ -24,6 +24,8 @@ SHADOW_MNESIA="$SHADOW_BASE/mnesia"
 EXISTING_NODE=""
 RABBITMQ_PID=""
 MIGRATION_MARKER="/var/lib/rabbitmq/mnesia/rabbitmq@localhost/.migration_complete_4.1"
+PERSISTENT_COOKIE="/var/lib/rabbitmq/mnesia/rabbitmq@localhost/.erlang.cookie"
+SYSTEM_COOKIE="/var/lib/rabbitmq/.erlang.cookie"
 
 log() {
     printf "[%s] [rmq-migration] %s\n" "$(date '+%F %T')" "$*" >&2
@@ -34,19 +36,54 @@ die() {
     exit 1
 }
 
+setup_erlang_cookie() {
+    log "=== Setting up Erlang cookie ==="
+    
+    
+    if [ -s "$PERSISTENT_COOKIE" ]; then
+        log "✅ Found existing cookie in EFS mount: $PERSISTENT_COOKIE"
+        # Copy to system location
+        cp "$PERSISTENT_COOKIE" "$SYSTEM_COOKIE"
+        chmod 600 "$SYSTEM_COOKIE"
+        chown rabbitmq:rabbitmq "$SYSTEM_COOKIE" 2>/dev/null || true
+        log "Copied persistent cookie to system location"
+    elif [ -s "$SYSTEM_COOKIE" ]; then
+        log "⚠️ Found cookie in system location (not persistent across restarts)"
+        log "Migrating cookie to persistent EFS location"
+        # Preserve existing cookie by copying to EFS
+        cp "$SYSTEM_COOKIE" "$PERSISTENT_COOKIE"
+        chmod 600 "$PERSISTENT_COOKIE"
+        chown rabbitmq:rabbitmq "$PERSISTENT_COOKIE" 2>/dev/null || true
+        log "✅ Cookie migrated to: $PERSISTENT_COOKIE"
+    else
+        log "No existing cookie found - creating new one"
+        echo "rabbitmq-cookie-$(date +%s)" > "$PERSISTENT_COOKIE"
+        chmod 600 "$PERSISTENT_COOKIE"
+        chown rabbitmq:rabbitmq "$PERSISTENT_COOKIE" 2>/dev/null || true
+        
+        # Copy to system location
+        cp "$PERSISTENT_COOKIE" "$SYSTEM_COOKIE"
+        chmod 600 "$SYSTEM_COOKIE"
+        chown rabbitmq:rabbitmq "$SYSTEM_COOKIE" 2>/dev/null || true
+        log "✅ Created new cookie at: $PERSISTENT_COOKIE"
+    fi
+    
+    local cookie_val="$(cat "$PERSISTENT_COOKIE")"
+    log "Cookie value: ${cookie_val:0:10}..."
+    log "✅ Erlang cookie setup complete"
+}
+
 detect_existing_data() {
     log "=== Detecting existing RabbitMQ data ==="
 
     if [ -f "$MIGRATION_MARKER" ]; then
-        log "✅ Marker found - skipping migration"
-        ( sleep 30; rabbitmqctl wait --pid 1 && rabbitmqctl enable_feature_flag all ) &
-        return 1
+        log "✅ Migration already complete - starting RabbitMQ normally"
+        return 2 
     fi
 
     if [ -d "$SHADOW_MNESIA" ] && [ "$(ls -A "$SHADOW_MNESIA" 2>/dev/null)" ]; then
-        log "✅ Migration already completed, starting RabbitMQ 4.1..."
-        rabbitmq-server &
-        return 1
+        log "✅ Shadow directory found (incomplete migration) - starting RabbitMQ"
+        return 2
     fi
 
     if [ -d "$ORIGINAL_MNESIA" ]; then
@@ -88,7 +125,7 @@ copy_mnesia_to_shadow() {
 
     for item in "$source_mnesia"/*; do
         local basename=$(basename "$item")
-        if [[ "$basename" =~ ^aws-backup- ]]; then
+        if [[ "$basename" =~ ^aws-backup- ]] || [[ "$basename" == ".erlang.cookie" ]]; then
             continue
         fi
 
@@ -131,30 +168,17 @@ setup_shadow_environment() {
     mkdir -p "$HOME"
 
     local shadow_cookie="$HOME/.erlang.cookie"
-    local main_cookie="/var/lib/rabbitmq/.erlang.cookie"
 
-    if [ -s "$main_cookie" ] && [ -r "$main_cookie" ]; then
-        cp "$main_cookie" "$shadow_cookie"
+    if [ -s "$PERSISTENT_COOKIE" ]; then
+        cp "$PERSISTENT_COOKIE" "$shadow_cookie"
         chmod 600 "$shadow_cookie"
-        log "Copied existing Erlang cookie from /var/lib/rabbitmq to shadow HOME"
-    elif [ -s "$shadow_cookie" ]; then
-        log "Using existing shadow Erlang cookie"
+        log "Copied persistent Erlang cookie to shadow HOME"
     else
-        # Create in main location first
-        if [ -w "/var/lib/rabbitmq" ]; then
-            echo "rabbitmq-cookie-$(date +%s)" > "$main_cookie"
-            chmod 600 "$main_cookie"
-            chown rabbitmq:rabbitmq "$main_cookie" 2>/dev/null || true
-            log "Created new Erlang cookie at /var/lib/rabbitmq/.erlang.cookie"
-            
-            # Copy to shadow HOME
-            cp "$main_cookie" "$shadow_cookie"
-            chmod 600 "$shadow_cookie"
-        else
-            echo "rabbitmq-cookie-$(date +%s)" > "$shadow_cookie"
-            chmod 600 "$shadow_cookie"
-            log "Created new Erlang cookie in shadow HOME (main location not writable)"
-        fi
+        log "⚠️ Persistent cookie not found, using system cookie"
+        cp "$SYSTEM_COOKIE" "$shadow_cookie" 2>/dev/null || {
+            die "❌ Could not find any Erlang cookie!"
+        }
+        chmod 600 "$shadow_cookie"
     fi
 
     local cookie_val="$(cat "$shadow_cookie")"
@@ -172,16 +196,28 @@ determine_mnesia_strategy() {
         log "Backing up data to shadow directory..."
         copy_mnesia_to_shadow "$ORIGINAL_MNESIA" "$SHADOW_MNESIA"
 
+        log "Clearing node directory in original to prevent conflicts..."
+        if [ -d "$ORIGINAL_MNESIA/$EXISTING_NODE" ]; then
+            log "Removing old node directory: $ORIGINAL_MNESIA/$EXISTING_NODE"
+            rm -rf "$ORIGINAL_MNESIA/$EXISTING_NODE" || {
+                die "❌ Failed to remove old node directory!"
+            }
+            log "✅ Old node directory cleared"
+        fi
+
         log "Creating working copy from shadow to original..."
         cp -a "$SHADOW_MNESIA/." "$ORIGINAL_MNESIA/" || {
             die "❌ Failed to create working copy!"
         }
         log "✅ Data copied from shadow to original"
 
-        log "Cleaning up old files from original (preserving AWS backups)..."
+        log "Cleaning up any remaining old files (preserving AWS backups and cookie)..."
         for item in "$ORIGINAL_MNESIA"/*; do
             local basename=$(basename "$item")
-            if [ ! -e "$SHADOW_MNESIA/$basename" ] && [[ ! "$basename" =~ ^aws-backup- ]]; then
+            if [ ! -e "$SHADOW_MNESIA/$basename" ] && \
+               [[ ! "$basename" =~ ^aws-backup- ]] && \
+               [[ "$basename" != ".erlang.cookie" ]]; then
+                log "Removing orphaned file/directory: $basename"
                 rm -rf "$item" 2>/dev/null || {
                     log "⚠️ Could not remove old file: $basename"
                 }
@@ -558,10 +594,19 @@ print_completion_message() {
 }
 
 main() {
-    if ! detect_existing_data; then
-        log "🔄 Waiting for RabbitMQ process to keep container alive..."
-        wait
-        exit 0
+    setup_erlang_cookie
+    
+    detect_existing_data
+    local detect_result=$?
+    
+    if [ $detect_result -eq 2 ]; then
+        log "Starting RabbitMQ (migration already complete)..."
+        log "Using exec to replace shell process - container will stay alive with RabbitMQ as PID 1"
+        exec rabbitmq-server
+    elif [ $detect_result -eq 1 ]; then
+        log "Starting fresh RabbitMQ installation..."
+        log "Using exec to replace shell process"
+        exec rabbitmq-server
     fi
 
     setup_shadow_environment
