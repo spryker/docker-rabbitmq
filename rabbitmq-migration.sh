@@ -547,8 +547,15 @@ print_completion_message() {
         log "✅ Fresh RabbitMQ 4.1 Installation Complete!"
     fi
     
-    # Create migration marker
+    if [ -d "$ORIGINAL_MNESIA/rabbitmq@localhost/shadow_home" ]; then
+        log "Cleaning up shadow_home directory..."
+        rm -rf "$ORIGINAL_MNESIA/rabbitmq@localhost/shadow_home" 2>/dev/null || {
+            log "⚠️ Could not remove shadow_home, but continuing..."
+        }
+    fi
+    
     touch "$MIGRATION_MARKER"
+    log "Created migration marker: $MIGRATION_MARKER"
 }
 
 main() {
@@ -560,11 +567,57 @@ main() {
     if [ $detect_result -eq 2 ]; then
         log "Starting RabbitMQ (migration already complete)..."
         log "Using exec to replace shell process - container will stay alive with RabbitMQ as PID 1"
-        exec rabbitmq-server
+        log "Cookie location: $PERSISTENT_COOKIE"
+        log "System cookie location: $SYSTEM_COOKIE"
+        log "Mnesia directory: $ORIGINAL_MNESIA"
+        
+        # Verify cookie exists and is readable
+        if [ -f "$SYSTEM_COOKIE" ]; then
+            log "System cookie exists, size: $(stat -c%s "$SYSTEM_COOKIE" 2>/dev/null || stat -f%z "$SYSTEM_COOKIE" 2>/dev/null) bytes"
+            log "System cookie permissions: $(ls -l "$SYSTEM_COOKIE")"
+        else
+            log "⚠️ WARNING: System cookie does not exist!"
+        fi
+        
+        # List what's in the mnesia node directory for debugging
+        if [ -d "$ORIGINAL_MNESIA/rabbitmq@localhost" ]; then
+            log "Node directory exists, contents:"
+            ls -la "$ORIGINAL_MNESIA/rabbitmq@localhost" 2>&1 | head -20 | while read line; do log "$line"; done
+        else
+            log "⚠️ WARNING: Node directory does not exist!"
+        fi
+        
+        # Check migration marker
+        if [ -f "$MIGRATION_MARKER" ]; then
+            log "✅ Migration marker exists: $MIGRATION_MARKER"
+        else
+            log "⚠️ WARNING: Migration marker does not exist (but detect_existing_data returned 2)"
+        fi
+        
+        # Clean up any leftover shadow_home before starting
+        if [ -d "$ORIGINAL_MNESIA/rabbitmq@localhost/shadow_home" ]; then
+            log "⚠️ Found leftover shadow_home directory, removing..."
+            rm -rf "$ORIGINAL_MNESIA/rabbitmq@localhost/shadow_home" 2>/dev/null || true
+        fi
+        
+        log "Fixing ownership of all mnesia files before starting RabbitMQ..."
+        chown -R rabbitmq:rabbitmq "$ORIGINAL_MNESIA" 2>/dev/null || {
+            log "⚠️ Could not change ownership (might be running as non-root in CI/CD)"
+        }
+        
+        # Verify permissions
+        log "Mnesia directory permissions:"
+        ls -ld "$ORIGINAL_MNESIA" "$ORIGINAL_MNESIA/rabbitmq@localhost" 2>&1 | while read line; do log "$line"; done
+        
+        log "Starting RabbitMQ now with output redirection..."
+        log "==========================================="
+        
+        # Use exec with output redirection to see errors
+        exec rabbitmq-server 2>&1
     elif [ $detect_result -eq 1 ]; then
         log "Starting fresh RabbitMQ installation..."
         log "Using exec to replace shell process"
-        exec rabbitmq-server
+        exec rabbitmq-server 2>&1
     fi
 
     setup_shadow_environment
