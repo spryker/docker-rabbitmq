@@ -9,7 +9,7 @@ RUN rabbitmq-plugins enable --offline rabbitmq_management \
     && rabbitmq-plugins enable --offline rabbitmq_shovel_management
 
 COPY rabbitmq-migration-hotfix.sh /usr/local/bin/rabbitmq-migration-hotfix.sh
-RUN chmod +x /usr/local/bin/rabbitmq-migration.sh
+RUN chmod +x /usr/local/bin/rabbitmq-migration-hotfix.sh
 
 USER root
 
