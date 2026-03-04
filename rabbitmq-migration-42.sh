@@ -37,6 +37,23 @@ die() {
     exit 1
 }
 
+skip_default_seeding() {
+    # Provide an empty definitions file so RabbitMQ skips insert_default_data()
+    # entirely. This prevents the fatal user_already_exists crash when
+    # needs_default_data() returns true but users/vhosts already exist.
+    # See rabbit.erl: maybe_insert_default_data/0 checks has_configured_definitions_to_load()
+    local defs_file="/etc/rabbitmq/definitions.json"
+    log "Creating empty definitions file to prevent default user seeding: $defs_file"
+    echo '{}' > "$defs_file"
+    chmod 644 "$defs_file"
+
+    # Tell RabbitMQ to load this definitions file
+    local conf_dir="/etc/rabbitmq/conf.d"
+    mkdir -p "$conf_dir"
+    echo "load_definitions = $defs_file" > "$conf_dir/50-skip-seeding.conf"
+    log "Configured RabbitMQ to load empty definitions (seeding disabled)"
+}
+
 setup_erlang_cookie() {
     log "=== Setting up Erlang cookie ==="
 
@@ -399,6 +416,11 @@ main() {
     detect_existing_data && detect_result=0 || detect_result=$?
 
     if [ $detect_result -eq 2 ]; then
+        # Prevent RabbitMQ from seeding default user/vhost on boot.
+        # In 4.2, needs_default_data() uses OR logic (any empty = seed),
+        # which crashes with user_already_exists when users exist but vhosts were deleted.
+        # Providing an empty definitions file makes RabbitMQ skip seeding entirely.
+        skip_default_seeding
         log "Starting RabbitMQ (migration already complete or recovering)..."
         log "Cookie location: $PERSISTENT_COOKIE"
         log "System cookie location: $SYSTEM_COOKIE"
@@ -489,6 +511,9 @@ main() {
         log "Using exec to replace shell process"
         exec rabbitmq-server 2>&1
     fi
+
+    # Prevent RabbitMQ from seeding default user/vhost — data already exists
+    skip_default_seeding
 
     setup_shadow_environment
     determine_mnesia_strategy
