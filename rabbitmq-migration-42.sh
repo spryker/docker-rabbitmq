@@ -106,6 +106,19 @@ detect_existing_data() {
         EXISTING_NODE=$(ls -1 "$ORIGINAL_MNESIA" 2>/dev/null | grep -E '^rabbit(mq)?@' | head -n1 || true)
 
         if [ -n "$EXISTING_NODE" ]; then
+            # Verify the directory contains actual RabbitMQ data, not just
+            # an empty dir created as a side-effect of setup_erlang_cookie.
+            local has_data
+            has_data=$(find "$ORIGINAL_MNESIA/$EXISTING_NODE" -mindepth 1 \
+                \( -name '*.DCD' -o -name '*.DCL' -o -name 'schema.DAT' \
+                   -o -name 'queues' -o -name 'msg_stores' \) 2>/dev/null | head -1)
+
+            if [ -z "$has_data" ]; then
+                log "Node directory '$EXISTING_NODE' has no RabbitMQ data - treating as fresh installation"
+                EXISTING_NODE=""
+                return 1
+            fi
+
             if [ -f "$MIGRATION_MARKER_41" ]; then
                 log "Found existing 4.1 data: $EXISTING_NODE - starting 4.1->4.2 migration"
             else
@@ -354,8 +367,35 @@ enable_rabbitmq_42_features() {
     timeout 30 rabbitmqctl list_feature_flags 2>/dev/null || true
 }
 
+ensure_user_exists() {
+    local rabbitmq_user="${RABBITMQ_DEFAULT_USER:-spryker}"
+    local rabbitmq_pass="${RABBITMQ_DEFAULT_PASS:-}"
+
+    log "=== Ensuring user '$rabbitmq_user' exists ==="
+
+    if timeout 30 rabbitmqctl list_users --quiet 2>/dev/null | grep -q "^${rabbitmq_user}[[:space:]]"; then
+        log "User '$rabbitmq_user' already exists"
+        return 0
+    fi
+
+    if [ -z "$rabbitmq_pass" ]; then
+        log "RABBITMQ_DEFAULT_PASS not set - skipping user creation"
+        return 0
+    fi
+
+    log "User '$rabbitmq_user' not found - creating..."
+    timeout 30 rabbitmqctl add_user "$rabbitmq_user" "$rabbitmq_pass" || {
+        log "Could not create user '$rabbitmq_user'"
+        return 1
+    }
+    timeout 30 rabbitmqctl set_user_tags "$rabbitmq_user" administrator || true
+    log "User '$rabbitmq_user' created and tagged as administrator"
+}
+
 setup_spryker_environment() {
     log "=== Setting up Spryker environment ==="
+
+    ensure_user_exists
 
     local existing_vhosts
     existing_vhosts=$(timeout 30 rabbitmqctl list_vhosts --quiet 2>/dev/null | grep -v '^name$' || echo "/")
@@ -473,6 +513,8 @@ main() {
         for i in $(seq 1 120); do
             if rabbitmqctl status >/dev/null 2>&1; then
                 log "RabbitMQ is ready!"
+
+                ensure_user_exists
 
                 log "=== Enabling all RabbitMQ 4.2 feature flags ==="
                 enable_rabbitmq_42_features
