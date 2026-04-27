@@ -13,3 +13,4 @@ RUN chmod +x /usr/local/bin/rabbitmq-migration.sh
 USER root
 
 ENTRYPOINT ["/usr/local/bin/rabbitmq-migration.sh"]
+
