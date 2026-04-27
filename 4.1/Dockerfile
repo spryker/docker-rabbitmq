@@ -7,10 +7,10 @@ RUN rabbitmq-plugins enable --offline rabbitmq_management \
     && rabbitmq-plugins enable --offline rabbitmq_prometheus \
     && rabbitmq-plugins enable --offline rabbitmq_shovel  \
     && rabbitmq-plugins enable --offline rabbitmq_shovel_management
-
 COPY rabbitmq-migration.sh /usr/local/bin/rabbitmq-migration.sh
 RUN chmod +x /usr/local/bin/rabbitmq-migration.sh
 
 USER root
 
 ENTRYPOINT ["/usr/local/bin/rabbitmq-migration.sh"]
+
