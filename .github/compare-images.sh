@@ -9,7 +9,7 @@ if [ -z "$IMAGE_TAG" ]; then
   exit 1
 fi
 
-docker run --rm "$IMAGE_TAG" bash -c '
+docker run --rm --entrypoint bash "$IMAGE_TAG" -c '
   echo "=== RabbitMQ Version ==="
   if command -v rabbitmqctl &> /dev/null; then
     rabbitmqctl version || echo "Failed to get RabbitMQ version"

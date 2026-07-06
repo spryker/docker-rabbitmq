@@ -13,4 +13,6 @@ COPY 4.1-sso/rabbitmq.conf /tmp/rabbitmq.conf.template
 COPY rabbitmq-migration.sh /usr/local/bin/rabbitmq-migration.sh
 RUN chmod +x /usr/local/bin/rabbitmq-migration.sh
 
-CMD ["rabbitmq-migration.sh"]
+USER root
+
+ENTRYPOINT ["/usr/local/bin/rabbitmq-migration.sh"]

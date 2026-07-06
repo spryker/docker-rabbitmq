@@ -12,29 +12,30 @@ jobs:
     outputs:
       release_date: ${{ steps.assemble.outputs.release_date }}
       last_updated_str: ${{ steps.assemble.outputs.last_updated_str }}
+      publish_date: ${{ steps.assemble.outputs.publish_date }}
     steps:
       - name: ✍️ Extract Sections from PR Body
         id: extract
         env:
           PR_BODY_RAW: ${{ github.event.pull_request.body }}
         run: |
-          # Clean and normalize the PR body
-          PR_BODY=$(echo "$PR_BODY_RAW" | tr -d '\r')
+          # Clean and normalize the PR body, remove checklist section
+          PR_BODY=$(echo "$PR_BODY_RAW" | tr -d '\r' | sed '/^## Checklist/,$d')
           
           # Extract improvements (after "### Improvements" and before "### Security Fixes")
-          IMPROVEMENTS=$(echo "$PR_BODY" | awk '/^### Improvements/{flag=1;next}/^### Security Fixes/{flag=0}flag')
+          IMPROVEMENTS=$(echo "$PR_BODY" | awk '/^### Improvements/{flag=1;next}/^### Security Fixes|^### Version release notes/{flag=0}flag')
           echo "improvements<<EOF" >> $GITHUB_OUTPUT
           echo "$IMPROVEMENTS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
-          # Extract security fixes (after "### Security Fixes" and before "### Official")
-          SECURITY_FIXES=$(echo "$PR_BODY" | awk '/^### Security Fixes/{flag=1;next}/^### Official/{flag=0}flag')
+          # Extract security fixes (after "### Security Fixes" and before "### Version release notes")
+          SECURITY_FIXES=$(echo "$PR_BODY" | awk '/^### Security Fixes/{flag=1;next}/^### Version release notes/{flag=0}flag')
           echo "security_fixes<<EOF" >> $GITHUB_OUTPUT
           echo "$SECURITY_FIXES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-          # Extract version release notes (after "### Version release notes" and before "## Steps")
-          VERSION_NOTES=$(echo "$PR_BODY" | awk '/^### Version release notes/{flag=1;next}/^## Steps/{flag=0}flag')
+          # Extract version release notes (after "### Version release notes" and before end or next section)
+          VERSION_NOTES=$(echo "$PR_BODY" | awk '/^### Version release notes/{flag=1;next}/^##/{flag=0}flag')
           echo "version_notes<<EOF" >> $GITHUB_OUTPUT
           echo "$VERSION_NOTES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -46,32 +47,62 @@ jobs:
           echo "release_date=$RELEASE_DATE" >> $GITHUB_OUTPUT
           
           PUBLISH_DATE=$(date +'%Y-%m-%d')
+          echo "publish_date=$PUBLISH_DATE" >> $GITHUB_OUTPUT
+          
           LAST_UPDATED_STR=$(date +'%B %d, %Y')
           echo "last_updated_str=$LAST_UPDATED_STR" >> $GITHUB_OUTPUT
 
-          cat << EOF > release-notes-block.md
+          # Process version notes to convert bare URLs to proper markdown links
+          PROCESSED_VERSION_NOTES=$(echo '${{ steps.extract.outputs.version_notes }}' | \
+            sed -E 's|([^(])(https?://[^ )]+)|\1[\2](\2)|g')
+
+          # Check if security fixes section has content
+          SECURITY_FIXES='${{ steps.extract.outputs.security_fixes }}'
+          SECURITY_SECTION=""
+          if [ -n "$(echo "$SECURITY_FIXES" | tr -d '[:space:]')" ]; then
+            SECURITY_SECTION="### Security Fixes
+
+          $SECURITY_FIXES
+
+          "
+          fi
+
+          cat << EOF > release-notes-new-file.md
+          ---
+          title: Release notes for spryker-rabbitmq $RELEASE_DATE
+          description: This document describes the changes that have been recently released.
+          last_updated: $LAST_UPDATED_STR
+          template: concept-topic-template
+          publish_date: "$PUBLISH_DATE"
           ---
 
-          Improvements
-          ------------
+          This document describes the changes that have been recently released.
+          For additional support with this content, contact our support.
+          If you found a new security vulnerability, contact us at **security@spryker.com**.
+
+          ---
+
+          ## Release notes for spryker-rabbitmq $RELEASE_DATE
+
+          **Improvements**:
+
           ${{ steps.extract.outputs.improvements }}
-          ${{ steps.extract.outputs.security_fixes }}
 
-          Version release notes
-          -------------------
-          $(echo "${{ steps.extract.outputs.version_notes }}" | sed 's|https://\([^ ]*\)|[\1](https://\1)|g')
+          ${SECURITY_SECTION}### Version release notes
 
+          ${PROCESSED_VERSION_NOTES}
           EOF
 
-          echo "::group::📜 New Release Notes Block"
-          cat release-notes-block.md
+          echo "::group::📜 New Release Notes File"
+          cat release-notes-new-file.md
           echo "::endgroup::"
           
       - name: 📤 Upload Release Notes Artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-notes-artifact
-          path: release-notes-block.md
+          path: release-notes-new-file.md
+
   create-release-pr:
     name: 📄 Create Release Notes PR in Docs Repo
     needs: generate_notes
@@ -92,49 +123,68 @@ jobs:
           token: ${{ secrets.DOCS_REPO_PAT }}
           path: docs-repo
 
-      - name: 📝 Prepare Final Release Notes File
+      - name: 📝 Create New Release Notes File
         run: |
-          NEW_NOTES_BLOCK_FILE="release-notes-block.md"
-          TARGET_FILE_PATH="./docs-repo/docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq.md"
-          NEW_LAST_UPDATED="${{ needs.generate_notes.outputs.last_updated_str }}"
-          CURRENT_DATE=$(date +'%Y-%m-%d')
+          RELEASE_DATE="${{ needs.generate_notes.outputs.release_date }}"
+          TARGET_DIR="./docs-repo/docs/about/all/releases/image-releases/rabbitmq"
+          TARGET_FILE="$TARGET_DIR/release-notes-spryker-rabbitmq-$RELEASE_DATE.md"
           
-          echo "Target file path: $TARGET_FILE_PATH"
-          mkdir -p "$(dirname "$TARGET_FILE_PATH")"
+          echo "Creating new release notes file: $TARGET_FILE"
+          mkdir -p "$TARGET_DIR"
+          
+          cp release-notes-new-file.md "$TARGET_FILE"
+          echo "✅ Created $TARGET_FILE"
 
-          if [ -f "$TARGET_FILE_PATH" ]; then
-            echo "File exists. Updating last_updated, publish_date and prepending release block."
-            EXISTING_CONTENT=$(cat "$TARGET_FILE_PATH")
-            UPDATED_CONTENT=$(echo "$EXISTING_CONTENT" | sed -e "0,/last_updated:.*/s/last_updated:.*/last_updated: ${NEW_LAST_UPDATED}/" -e "0,/publish_date:.*/s/publish_date:.*/publish_date: \"${CURRENT_DATE}\"/" )
-            
-            line_num=$(echo "$UPDATED_CONTENT" | sed -n '/---/=' | sed -n '2p')
-            MAIN_HEADER=$(echo "$UPDATED_CONTENT" | head -n "$line_num")
-            EXISTING_BODY=$(echo "$UPDATED_CONTENT" | tail -n "+$((line_num + 1))")
-
-            {
-              echo "$MAIN_HEADER"
-              echo ""
-              cat "$NEW_NOTES_BLOCK_FILE"
-              echo "$EXISTING_BODY"
-            } > "$TARGET_FILE_PATH"
-          else
-            echo "File does not exist. Creating new file with static header and intro text."
-            printf '%s\n' \
-              "---" \
-              "title: Release notes for spryker-rabbitmq docker image" \
-              "description: This document describes the changes that have been recently released." \
-              "last_updated: ${NEW_LAST_UPDATED}" \
-              "template: concept-topic-template" \
-              "publish_date: \"${CURRENT_DATE}\"" \
-              "---" \
-              "" \
-              "This document describes the changes that have been recently released." \
-              "For additional support with this content, contact our support." \
-              "If you found a new security vulnerability, contact us at **security@spryker.com**." > "$TARGET_FILE_PATH"
-
-            echo "" >> "$TARGET_FILE_PATH"
-            cat "$NEW_NOTES_BLOCK_FILE" >> "$TARGET_FILE_PATH"
+      - name: 📋 Update Sidebar Navigation
+        run: |
+          RELEASE_DATE="${{ needs.generate_notes.outputs.release_date }}"
+          SIDEBAR_FILE="./docs-repo/_data/sidebars/about_all_sidebar.yml"
+          
+          echo "Updating sidebar: $SIDEBAR_FILE"
+          
+          # Check if RabbitMQ section exists under Image releases
+          if ! grep -q "title: RabbitMQ" "$SIDEBAR_FILE"; then
+            echo "⚠️ RabbitMQ section does not exist in sidebar. Please create it manually first."
+            echo "Expected to find: 'title: RabbitMQ' under 'Image releases'"
+            echo ""
+            echo "Please add the following structure to the sidebar under 'Image releases':"
+            echo "        - title: RabbitMQ"
+            echo "          nested:"
+            exit 1
           fi
+          
+          echo "✅ RabbitMQ section found, adding new entry..."
+          
+          echo "::group::📋 Current RabbitMQ section"
+          grep -A 10 "title: RabbitMQ" "$SIDEBAR_FILE" | head -15
+          echo "::endgroup::"
+          
+          RABBITMQ_LINE=$(grep -n "^\s*- title: RabbitMQ$" "$SIDEBAR_FILE" | head -1 | cut -d: -f1)
+          
+          if [ -z "$RABBITMQ_LINE" ]; then
+            echo "❌ Could not find RabbitMQ section line number"
+            exit 1
+          fi
+          
+          echo "Found RabbitMQ section at line: $RABBITMQ_LINE"
+          
+          INSERT_LINE=$((RABBITMQ_LINE + 2))
+          
+          echo "Inserting new entry at line: $INSERT_LINE"
+          
+          printf "          - title: Release notes for spryker-rabbitmq %s\n            url: /docs/about/all/releases/image-releases/rabbitmq/release-notes-spryker-rabbitmq-%s.html\n" "$RELEASE_DATE" "$RELEASE_DATE" > /tmp/new_entry.txt
+          
+          # Insert the new entry
+          head -n $((INSERT_LINE - 1)) "$SIDEBAR_FILE" > /tmp/sidebar_temp.yml
+          cat /tmp/new_entry.txt >> /tmp/sidebar_temp.yml
+          tail -n +$INSERT_LINE "$SIDEBAR_FILE" >> /tmp/sidebar_temp.yml
+          mv /tmp/sidebar_temp.yml "$SIDEBAR_FILE"
+          
+          echo "✅ Added new entry to RabbitMQ section at line $INSERT_LINE"
+          
+          echo "::group::📋 Updated RabbitMQ section"
+          grep -A 15 "title: RabbitMQ" "$SIDEBAR_FILE" | head -20
+          echo "::endgroup::"
 
       - name: 🚀 Create Pull Request
         uses: peter-evans/create-pull-request@v6
@@ -145,7 +195,12 @@ jobs:
           branch: "docs/docker-images/release-notes-spryker-rabbitmq-${{ needs.generate_notes.outputs.release_date }}"
           title: "Release Notes for spryker-rabbitmq ${{ needs.generate_notes.outputs.release_date }}"
           body: |
-            This PR contains the latest automated release notes generated from the source repository.
+            This PR contains the release notes for spryker-rabbitmq ${{ needs.generate_notes.outputs.release_date }}.
+            
+            **Changes:**
+            - Created new release notes file: `release-notes-spryker-rabbitmq-${{ needs.generate_notes.outputs.release_date }}.md`
+            - Updated sidebar navigation in `about_all_sidebar.yml`
+            
             Please review and merge. ✅
           labels: "automation"
           base: master
