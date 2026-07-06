@@ -54,6 +54,25 @@ skip_default_seeding() {
     log "Configured RabbitMQ to load empty definitions (seeding disabled)"
 }
 
+setup_rabbitmq_config() {
+    log "=== Setting up RabbitMQ configuration ==="
+
+    local enable_oauth_config="${ENABLE_OAUTH_CONFIG:-true}"
+
+    if [ "$enable_oauth_config" = "true" ]; then
+        if [ -f "/tmp/rabbitmq.conf.template" ]; then
+            log "OAuth config enabled - copying rabbitmq.conf"
+            cp /tmp/rabbitmq.conf.template /etc/rabbitmq/rabbitmq.conf
+            log "Configuration file copied to /etc/rabbitmq/rabbitmq.conf"
+        else
+            log "rabbitmq.conf template not found at /tmp/rabbitmq.conf.template - skipping"
+        fi
+    else
+        log "OAuth config disabled (ENABLE_OAUTH_CONFIG=false) - skipping rabbitmq.conf"
+        rm -f /etc/rabbitmq/rabbitmq.conf
+    fi
+}
+
 setup_erlang_cookie() {
     log "=== Setting up Erlang cookie ==="
 
@@ -450,6 +469,9 @@ print_completion_message() {
 
 main() {
     export PYTHONUNBUFFERED=1
+
+    # Setup config before starting RabbitMQ
+    setup_rabbitmq_config
 
     setup_erlang_cookie
 

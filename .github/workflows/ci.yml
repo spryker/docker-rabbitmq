@@ -24,6 +24,17 @@ jobs:
             tag: "spryker/rabbitmq:4.1-shovel"
             platforms: "linux/amd64,linux/arm64"
 
+          # RabbitMQ 4.1-SSO variants
+          - image: "4.1-sso/Dockerfile"
+            tag: "spryker/rabbitmq:4.1-sso"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "4.1-sso/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:4.1-sso-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "4.1-sso/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:4.1-sso-shovel"
+            platforms: "linux/amd64,linux/arm64"
+
           # RabbitMQ 4.2 variants
           - image: "4.2/Dockerfile"
             tag: "spryker/rabbitmq:4.2"
@@ -33,6 +44,17 @@ jobs:
             platforms: "linux/amd64,linux/arm64"
           - image: "4.2/shovel/Dockerfile"
             tag: "spryker/rabbitmq:4.2-shovel"
+            platforms: "linux/amd64,linux/arm64"
+
+          # RabbitMQ 4.2-SSO variants
+          - image: "4.2-sso/Dockerfile"
+            tag: "spryker/rabbitmq:4.2-sso"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "4.2-sso/amqp1/Dockerfile"
+            tag: "spryker/rabbitmq:4.2-sso-amqp1"
+            platforms: "linux/amd64,linux/arm64"
+          - image: "4.2-sso/shovel/Dockerfile"
+            tag: "spryker/rabbitmq:4.2-sso-shovel"
             platforms: "linux/amd64,linux/arm64"
 
     name: Build and Scan - ${{ matrix.tag }}
