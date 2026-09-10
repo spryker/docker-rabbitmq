@@ -26,6 +26,8 @@ jobs:
 
           # RabbitMQ 4.2 variants
           - image: "4.2/Dockerfile"
+            tag: "spryker/rabbitmq:latest"
+          - image: "4.2/Dockerfile"
             tag: "spryker/rabbitmq:4.2"
             platforms: "linux/amd64,linux/arm64"
           - image: "4.2/amqp1/Dockerfile"
