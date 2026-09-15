@@ -7,3 +7,5 @@ RUN rabbitmq-plugins enable --offline rabbitmq_management \
     && rabbitmq-plugins enable --offline rabbitmq_prometheus \
     && rabbitmq-plugins enable --offline rabbitmq_shovel  \
     && rabbitmq-plugins enable --offline rabbitmq_shovel_management
+
+ENV RABBITMQ_FEATURE_FLAGS=khepri_db
