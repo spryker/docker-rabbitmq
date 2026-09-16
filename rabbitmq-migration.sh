@@ -190,6 +190,25 @@ setup_shadow_environment() {
     log "✅ Shadow environment ready with synchronized cookie"
 }
 
+setup_rabbitmq_config() {
+    log "=== Setting up RabbitMQ configuration ==="
+
+    local enable_oauth_config="${ENABLE_OAUTH_CONFIG:-true}"
+
+    if [ "$enable_oauth_config" = "true" ]; then
+        if [ -f "/tmp/rabbitmq.conf.template" ]; then
+            log "✅ OAuth config enabled - copying rabbitmq.conf"
+            cp /tmp/rabbitmq.conf.template /etc/rabbitmq/rabbitmq.conf
+            log "✅ Configuration file copied to /etc/rabbitmq/rabbitmq.conf"
+        else
+            log "⚠️ Warning: rabbitmq.conf template not found at /tmp/rabbitmq.conf.template"
+        fi
+    else
+        log "ℹ️ OAuth config disabled (ENABLE_OAUTH_CONFIG=false) - skipping rabbitmq.conf"
+        rm -f /etc/rabbitmq/rabbitmq.conf
+    fi
+}
+
 determine_mnesia_strategy() {
     log "=== Preparing migration ==="
 
@@ -562,7 +581,10 @@ print_completion_message() {
 main() {
     # Force output to be unbuffered
     export PYTHONUNBUFFERED=1
-    
+
+    # Setup config before starting RabbitMQ
+    setup_rabbitmq_config
+
     setup_erlang_cookie
     
     detect_existing_data && detect_result=0 || detect_result=$?
